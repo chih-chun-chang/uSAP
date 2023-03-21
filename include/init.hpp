@@ -16,7 +16,12 @@
 #include "graph.hpp"
 
 
-void initialize_edge_counts(std::unordered_map< int, std::vector<std::vector<int>> > out_neighbors,
+// TODO: Graph::_initialize_edge_count
+void initialize_edge_counts(
+  
+  const std::vector<std::...>& ...
+  // this is fucking stupid --- please avoid in the future
+  //std::unordered_map< int, std::vector<std::vector<int>> > out_neighbors,
                             int B,
                             std::vector<int> b,
                             // for return

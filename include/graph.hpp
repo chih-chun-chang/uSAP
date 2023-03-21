@@ -12,21 +12,49 @@
 #include <algorithm>
 #include <limits>
 
+// TODO
+namespace sgp {
 
+}
+
+// TODO
+template <typename WeightType>
 class Graph {
-  public:
-    int N; // number of node
-    int E; // number of edge
 
-    std::unordered_map< int, std::unordered_map<int, int> > adjList; // adjList[i][j] = w_ij (i->j)
-    std::unordered_map< int, std::vector<std::vector<int>> > in_neighbors; // {in_neighbor_index}
-    std::unordered_map< int, std::vector<std::vector<int>> > out_neighbors; // {out_neighbor_index}
+  struct Edge {
+    size_t from, to;
+    WeightType weight;
+  }
+
+  public:
+
+    size_t num_nodes() const { return _N; }
+    size_t num_edges() const { return _E; }
+
+  private:
+
+  // TODO: only methods you want users to use go to public
+  // private member/function always starts with a underscore _
+
+  // change int to size_t
+    int _N; // number of node
+    int _E; // number of edge
+
+    // TODO: vector of vector vec[i] is constant time
+    //       unordered_map[i] is approximately constant time (you need hash<int>)
+    //std::unordered_map< int, std::unordered_map<int, int> > adjList; // adjList[i][j] = w_ij (i->j)
+    //std::unordered_map< int, std::vector<std::vector<int>> > in_neighbors; // {in_neighbor_index}
+    //std::unordered_map< int, std::vector<std::vector<int>> > out_neighbors; // {out_neighbor_index}
+
+    std::vector<Edge> _edges;
+    std::vector<std::vector<Edge>> _adjlist;
 
     std::vector<int> true_partition; // (node, block)
 
 
     Graph() : N(0), E(0){} // constructor
-
+    
+    // TODO:
     void load_graph_from_tsv(std::string FileName) { 
       
       std::ifstream file(FileName + ".tsv"); // open the file in read mode

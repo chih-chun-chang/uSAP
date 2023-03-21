@@ -15,12 +15,27 @@
 #define delta_entropy_threshold2 1e-4
 #define delta_entropy_moving_avg_window 3
 
-int main () {
-
+int main (int argc, char *argv[]) {
+  
   std::string FileName("../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_1000_nodes");
- 
+  
+  // TODO
+  if(argc == 2) {
+    FileName = argv[1]; 
+  }
+  
+  // namespace sgp::Graph g
   Graph g;
   g.load_graph_from_tsv(FileName);
+
+  // TODO:
+  // g.update("FileName.tsv")
+  // g.partition();
+
+  // get partition of each vertex
+  //for(size_t i=0; i<g.num_vertices(); i++) {
+  //  printf("vertex %lu belongs to partition %lu\n", i, g.get_partition(i));
+  //}
  
   std::cout << "Number of nodes: " << g.N << std::endl;
   std::cout << "Number of edges: " << g.E << std::endl;

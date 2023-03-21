@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <limits>
 
+// TODO: prefer const reference over reference over move over copy
 void propose_new_partition(int r,
                            std::vector< std::vector<int> > neighbors_out,
                            std::vector< std::vector<int> > neighbors_in,
@@ -27,7 +28,7 @@ void propose_new_partition(int r,
                            int& k
                           )
 {
-  
+  // TODO: reuse as many storage as possible inside Graph:: ...
   std::vector< std::vector<int> > neighbors(neighbors_out);
   neighbors.insert(neighbors.end(), neighbors_in.begin(), neighbors_in.end());
 
