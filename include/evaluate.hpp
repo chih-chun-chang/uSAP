@@ -58,10 +58,18 @@ void evaluate(const std::vector<V> &truth, const std::vector<V> &given) {
   else {
     tmp = contingency_table;
   }
-  
+
+  std::vector<std::vector<V>> tmp2 = tmp;
+  for (auto& row : tmp2) {
+    for (auto& col : row) {
+      col = -col;
+    }
+  }
+
+
   // K-M assignment
   bf::KuhnMunkresSolver<V> km;
-  km.solve(tmp);
+  km.solve(tmp2);
   auto& indices = km.match1();
 
   V total = 0;
@@ -111,10 +119,10 @@ void evaluate(const std::vector<V> &truth, const std::vector<V> &given) {
   
   for(size_t i=0;i<contingency_table.size(); i++) {
     for(size_t j=0;j<contingency_table[i].size();j++) {
-      std::cout << contingency_table[i][j] << " ";
+      //std::cout << contingency_table[i][j] << " ";
       joint_prob[i][j] = contingency_table[i][j]/(float)N;
     }
-    std::cout << '\n';
+    //std::cout << '\n';
     accuracy += joint_prob[i][i];
   }
   std::cout << "Accuracy (with optimal partition matching): " << accuracy << '\n';

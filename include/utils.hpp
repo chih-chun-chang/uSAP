@@ -19,8 +19,8 @@ std::vector<size_t> unique(std::vector<size_t> arr) {
   return unique_arr;
 }
 
-std::vector<int> argsort(std::vector<double> arr) {
-  std::vector<int> sorted_indices(arr.size());
+std::vector<size_t> argsort(std::vector<float> arr) {
+  std::vector<size_t> sorted_indices(arr.size());
   std::iota(sorted_indices.begin(), sorted_indices.end(), 0);  // Fill with 0, 1, ..., arr.size()-1
   std::sort(sorted_indices.begin(), sorted_indices.end(),
               [&arr](int i, int j){ return arr[i] < arr[j]; });  // Sort by arr values
