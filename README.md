@@ -51,6 +51,12 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 | 1.72   | std::vector<int, std::allocator<int> >::operator[](unsigned long) |
 | 1.61   | std::allocator<bool>::allocator() |
 
+* compare block merge and nodal update
+
+| Vertices | Block Merge | Nodal Update | Overall |
+| -------  | ----------  | -----------  | ------- |
+|1000| 1250 | 1882 | 3179 |
+| 5000 | 41841 | 29050 | 71759 | 
 
 ## TODO
 - [ ] Parallel Blockwise Merge
