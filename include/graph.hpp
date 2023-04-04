@@ -58,6 +58,7 @@ class Graph {
     size_t _E;                                      // number of edge
     
     std::vector<Edge> _edges;
+    // TODO: variable naming _a_b_c
     std::vector<std::vector<std::pair<size_t, W>>> _outNeighbors;
     std::vector<std::vector<std::pair<size_t, W>>> _inNeighbors;
 
@@ -68,12 +69,15 @@ class Graph {
 
     // the best three partitions so far 
     // stored in the order of the number of blocks
+    // TODO: Camel naming
+    // OldPartition (no need of _)
     struct _Old_partition {
       std::vector<size_t> large;
       std::vector<size_t> med;
       std::vector<size_t> small;
     };
     
+    // TODO: OldInterblockEdgeCount
     struct _Old_interblock_edge_count {
       std::vector<W> large;
       std::vector<W> med;
@@ -116,35 +120,42 @@ class Graph {
                                  std::vector<W>& d_out, 
                                  std::vector<W>& d_in, 
                                  std::vector<W>& d);
+  
+    // TODO: POD
+    // plain-old data type prefers copy (cheap) over const reference
+    // size_t r
+    void _propose_new_partition(
+      const size_t& r,
+      const std::vector< std::pair<size_t, W> >& neighbors_out,
+      const std::vector< std::pair<size_t, W> >& neighbors_in,
+      const std::vector<size_t>& b,
+      const std::vector<W>& M,
+      const std::vector<W>& d,
+      const bool& agg_move,
+      const std::default_random_engine& generator,
+      size_t& s,
+      W& k_out,
+      W& k_in,
+      W& k,
+      std::vector< std::pair<size_t, W> >& neighbors,
+      std::vector<float>& probabilities
+    );
 
-    void _propose_new_partition(const size_t& r,
-                                const std::vector< std::pair<size_t, W> >& neighbors_out,
-                                const std::vector< std::pair<size_t, W> >& neighbors_in,
-                                const std::vector<size_t>& b,
-                                const std::vector<W>& M,
-                                const std::vector<W>& d,
-                                const bool& agg_move,
-                                const std::default_random_engine& generator,
-                                size_t& s,
-                                W& k_out,
-                                W& k_in,
-                                W& k,
-                                std::vector< std::pair<size_t, W> >& neighbors,
-                                std::vector<float>& probabilities);
-
-    void _compute_new_rows_cols_interblock_edge_count(const std::vector<W>& M,
-                                                      const size_t& r,
-                                                      const size_t& s,
-                                                      const std::vector<size_t>& b_out,
-                                                      const std::vector<W>& count_out,
-                                                      const std::vector<size_t>& b_in,
-                                                      const std::vector<W>& count_in,
-                                                      const W& count_self,
-                                                      const bool& agg_move,
-                                                      std::vector<W>& M_r_row,
-                                                      std::vector<W>& M_s_row,
-                                                      std::vector<W>& M_r_col,
-                                                      std::vector<W>& M_s_col);
+    void _compute_new_rows_cols_interblock_edge_count(
+      const std::vector<W>& M,
+      const size_t& r,
+      const size_t& s,
+      const std::vector<size_t>& b_out,
+      const std::vector<W>& count_out,
+      const std::vector<size_t>& b_in,
+      const std::vector<W>& count_in,
+      const W& count_self,
+      const bool& agg_move,
+      std::vector<W>& M_r_row,
+      std::vector<W>& M_s_row,
+      std::vector<W>& M_r_col,
+      std::vector<W>& M_s_col
+    );
     
     void _compute_new_block_degree(const size_t& r,
                                    const size_t& s,
@@ -261,13 +272,16 @@ void Graph<W>::load_graph_from_tsv(const std::string& FileName) {
   file.close();
 
   _E = _edges.size();
-
+  
+  // TODO: what is the difference between the code below and
+  //       _outNeightbors.resize(_N)
   _outNeighbors.resize(_N, std::vector<std::pair<size_t, W>>(0));
   _inNeighbors.resize(_N, std::vector<std::pair<size_t, W>>(0));
   
+  // TODO: understand difference between emplace and push_back
   for (auto& e : _edges) {
-    _outNeighbors[e.from-1].emplace_back(std::pair<size_t, W> {e.to-1, e.weight});
-    _inNeighbors[e.to-1].emplace_back(std::pair<size_t, W> {e.from-1, e.weight});
+    _outNeighbors[e.from-1].emplace_back(e.to-1, e.weight);
+    _inNeighbors[e.to-1].emplace_back(e.from-1, e.weight);
   }
 
   // load the true partition
@@ -386,6 +400,7 @@ std::vector<size_t> Graph<W>::partition() {
         
         out_blocks.clear(); 
         in_blocks.clear();
+        // TODO: emplace_back ...
         for (size_t i = 0; i < _num_blocks; i++) {
           if (interblock_edge_count[_num_blocks*current_block + i] != 0) {
             out_blocks.emplace_back(std::pair<size_t, W> {
@@ -513,6 +528,7 @@ std::vector<size_t> Graph<W>::partition() {
     itr_delta_entropy.clear();
     itr_delta_entropy.resize(max_num_nodal_itr, 0.0);
 
+    // TODO: measure the runtime using chrono
     float overall_entropy = _compute_overall_entropy(interblock_edge_count, 
                                                      block_degrees_out, 
                                                      block_degrees_in);
@@ -556,6 +572,7 @@ std::vector<size_t> Graph<W>::partition() {
           blocks_in.clear();
           count_in.clear(); 
          
+          // TODO: prefer const auto& over auto&
           for (auto& ele : _outNeighbors[current_node]) {
             // emplace_back
             blocks_out.push_back(partitions[ele.first]);
@@ -869,19 +886,21 @@ void Graph<W>::_propose_new_partition(const size_t& r,
 }
 
 template <typename W>
-void Graph<W>::_compute_new_rows_cols_interblock_edge_count(const std::vector<W>& M,
-                                                            const size_t& r,
-                                                            const size_t& s,
-                                                            const std::vector<size_t>& b_out,
-                                                            const std::vector<W>& count_out,
-                                                            const std::vector<size_t>& b_in,
-                                                            const std::vector<W>& count_in,
-                                                            const W& count_self,
-                                                            const bool& agg_move,
-                                                            std::vector<W>& M_r_row,
-                                                            std::vector<W>& M_s_row,
-                                                            std::vector<W>& M_r_col,
-                                                            std::vector<W>& M_s_col) {
+void Graph<W>::_compute_new_rows_cols_interblock_edge_count(
+  const std::vector<W>& M,
+  const size_t& r,
+  const size_t& s,
+  const std::vector<size_t>& b_out,
+  const std::vector<W>& count_out,
+  const std::vector<size_t>& b_in,
+  const std::vector<W>& count_in,
+  const W& count_self,
+  const bool& agg_move,
+  std::vector<W>& M_r_row,
+  std::vector<W>& M_s_row,
+  std::vector<W>& M_r_col,
+  std::vector<W>& M_s_col
+) {
   size_t B = _num_blocks;
   
   M_r_row.clear();
@@ -896,10 +915,12 @@ void Graph<W>::_compute_new_rows_cols_interblock_edge_count(const std::vector<W>
   else {
     M_r_row.resize(B, 0);
     M_r_col.resize(B, 0);
+    // TODO: taskflow::for_each_index
     for (size_t i = 0; i < B; i++) {
       M_r_row[i] = M[r*B + i];
       M_r_col[i] = M[i*B + r];
     }
+    // TODO: static task
     for (size_t i = 0; i < b_out.size(); i++) {
       M_r_row[ b_out[i] ] -= count_out[i];
     }

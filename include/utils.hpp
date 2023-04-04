@@ -6,7 +6,9 @@
 
 namespace sgp {
 
-std::vector<size_t> unique(std::vector<size_t> arr) {
+// TODO:
+std::vector<size_t> unique(const std::vector<size_t>& arr) {
+  // TODO: consider moving unique_arr to Graph private members
   std::vector<size_t> unique_arr;
   std::set<size_t> seen;  // Used to track unique values
   for (auto elem : arr) {
@@ -19,7 +21,8 @@ std::vector<size_t> unique(std::vector<size_t> arr) {
   return unique_arr;
 }
 
-std::vector<size_t> argsort(std::vector<float> arr) {
+// TODO:
+std::vector<size_t> argsort(const std::vector<float>& arr) {
   std::vector<size_t> sorted_indices(arr.size());
   std::iota(sorted_indices.begin(), sorted_indices.end(), 0);  // Fill with 0, 1, ..., arr.size()-1
   std::sort(sorted_indices.begin(), sorted_indices.end(),
