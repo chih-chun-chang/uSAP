@@ -59,5 +59,6 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 | 5000 | 41841 | 29050 | 71759 | 
 
 ## TODO
-- [ ] Parallel Blockwise Merge
+- [ ] add args to run 1000 5000 ...
+- [ ] Parallel Blockwise Merge (Taskflow)
 - [ ] Streaming Graph Input

@@ -11,8 +11,7 @@
 #include <limits>
 #include <utility>
 #include <cassert>
-
-#include "utils.hpp"
+#include <set>
 
 namespace sgp {
 
@@ -58,80 +57,73 @@ class Graph {
     size_t _E;                                      // number of edge
     
     std::vector<Edge> _edges;
-    // TODO: variable naming _a_b_c
-    std::vector<std::vector<std::pair<size_t, W>>> _outNeighbors;
+    std::vector<std::vector<std::pair<size_t, W>>> _out_neighbors;
     std::vector<std::vector<std::pair<size_t, W>>> _inNeighbors;
 
-    size_t _num_blocks;                             // number of blocks
+    size_t _num_blocks;
 
-    std::random_device _rd;                         // random device
-    std::default_random_engine _generator;          // random number generator
-
-    // the best three partitions so far 
-    // stored in the order of the number of blocks
-    // TODO: Camel naming
-    // OldPartition (no need of _)
-    struct _Old_partition {
+    std::random_device _rd;
+    std::default_random_engine _generator;
+    
+    struct OldPartition {
       std::vector<size_t> large;
       std::vector<size_t> med;
       std::vector<size_t> small;
     };
     
-    // TODO: OldInterblockEdgeCount
-    struct _Old_interblock_edge_count {
+    struct OldInterblockEdgeCount {
       std::vector<W> large;
       std::vector<W> med;
       std::vector<W> small;
     };
 
-    struct _Old_block_degrees {
+    struct OldBlockDegrees {
       std::vector<W> large;
       std::vector<W> med;
       std::vector<W> small;
     };
     
-    struct _Old_block_degrees_out {
+    struct OldBlockDegreesOut {
       std::vector<W> large;
       std::vector<W> med;
       std::vector<W> small;
     };
     
-    struct _Old_block_degrees_in {
+    struct OldBlockDegreesIn {
       std::vector<W> large;
       std::vector<W> med;
       std::vector<W> small;
     };
 
-    struct _Old_overall_entropy {
+    struct OldOverallEntropy {
       float large;
       float med;
       float small;
     };
 
-    struct _Old_num_blocks {
+    struct OldNumBlocks {
       size_t large;
       size_t med;
       size_t small;
     };
 
     // functions used internally
-    void _initialize_edge_counts(const std::vector<size_t>& partitions,
-                                 std::vector<W>& M, 
-                                 std::vector<W>& d_out, 
-                                 std::vector<W>& d_in, 
-                                 std::vector<W>& d);
+    void _initialize_edge_counts(
+      const std::vector<size_t>& partitions,
+      std::vector<W>& M, 
+      std::vector<W>& d_out, 
+      std::vector<W>& d_in, 
+      std::vector<W>& d
+    );
   
-    // TODO: POD
-    // plain-old data type prefers copy (cheap) over const reference
-    // size_t r
     void _propose_new_partition(
-      const size_t& r,
+      size_t r,
       const std::vector< std::pair<size_t, W> >& neighbors_out,
       const std::vector< std::pair<size_t, W> >& neighbors_in,
       const std::vector<size_t>& b,
       const std::vector<W>& M,
       const std::vector<W>& d,
-      const bool& agg_move,
+      bool agg_move,
       const std::default_random_engine& generator,
       size_t& s,
       W& k_out,
@@ -143,98 +135,136 @@ class Graph {
 
     void _compute_new_rows_cols_interblock_edge_count(
       const std::vector<W>& M,
-      const size_t& r,
-      const size_t& s,
+      size_t r,
+      size_t s,
       const std::vector<size_t>& b_out,
       const std::vector<W>& count_out,
       const std::vector<size_t>& b_in,
       const std::vector<W>& count_in,
-      const W& count_self,
-      const bool& agg_move,
+      W count_self,
+      bool agg_move,
       std::vector<W>& M_r_row,
       std::vector<W>& M_s_row,
       std::vector<W>& M_r_col,
       std::vector<W>& M_s_col
     );
     
-    void _compute_new_block_degree(const size_t& r,
-                                   const size_t& s,
-                                   const std::vector<W>& d_out,
-                                   const std::vector<W>& d_in,
-                                   const std::vector<W>& d,
-                                   const W& k_out,
-                                   const W& k_in,
-                                   const W& k,
-                                   std::vector<W>& d_out_new,
-                                   std::vector<W>& d_in_new,
-                                   std::vector<W>& d_new);
+    void _compute_new_block_degree(
+      size_t r,
+      size_t s,
+      const std::vector<W>& d_out,
+      const std::vector<W>& d_in,
+      const std::vector<W>& d,
+      W k_out,
+      W k_in,
+      W k,
+      std::vector<W>& d_out_new,
+      std::vector<W>& d_in_new,
+      std::vector<W>& d_new
+    );
                                   
-    float _compute_delta_entropy(const size_t& r,
-                                 const size_t& s,
-                                 const std::vector<W>& M,
-                                 const std::vector<W>& M_r_row,
-                                 const std::vector<W>& M_s_row,
-                                 const std::vector<W>& M_r_col,
-                                 const std::vector<W>& M_s_col,
-                                 const std::vector<W>& d_out,
-                                 const std::vector<W>& d_in,
-                                 const std::vector<W>& d_out_new,
-                                 const std::vector<W>& d_in_new);        
+    float _compute_delta_entropy(
+      size_t r,
+      size_t s,
+      const std::vector<W>& M,
+      const std::vector<W>& M_r_row,
+      const std::vector<W>& M_s_row,
+      const std::vector<W>& M_r_col,
+      const std::vector<W>& M_s_col,
+      const std::vector<W>& d_out,
+      const std::vector<W>& d_in,
+      const std::vector<W>& d_out_new,
+      const std::vector<W>& d_in_new
+    );        
      
-    size_t _carry_out_best_merges(const std::vector<size_t>& bestMerges,
-                                  const std::vector<int>& best_merge_for_each_block,
-                                  const size_t& B_to_merge,
-                                  std::vector<size_t>& b,
-                                  std::vector<size_t>& block_map,
-                                  std::vector<size_t>& remaining_blocks);
+    size_t _carry_out_best_merges(
+      const std::vector<size_t>& bestMerges,
+      const std::vector<int>& best_merge_for_each_block,
+      size_t B_to_merge,
+      std::vector<size_t>& b,
+      std::vector<size_t>& block_map,
+      std::vector<size_t>& remaining_blocks
+    );
 
-    float _compute_overall_entropy(const std::vector<W>& M,
-                                   const std::vector<W>& d_out,
-                                   const std::vector<W>& d_in); 
+    float _compute_overall_entropy(
+      const std::vector<W>& M,
+      const std::vector<W>& d_out,
+      const std::vector<W>& d_in
+    ); 
 
-    float _compute_Hastings_correction(const std::vector<size_t>& b_out,
-                                       const std::vector<W>& count_out,
-                                       const std::vector<size_t>& b_in,
-                                       const std::vector<W>& count_in,
-                                       const size_t& s,
-                                       const std::vector<W>& M,
-                                       const std::vector<W>& M_r_row,
-                                       const std::vector<W>& M_r_col,
-                                       const std::vector<W>& d,
-                                       const std::vector<W>& d_new);
+    float _compute_Hastings_correction(
+      const std::vector<size_t>& b_out,
+      const std::vector<W>& count_out,
+      const std::vector<size_t>& b_in,
+      const std::vector<W>& count_in,
+      size_t s,
+      const std::vector<W>& M,
+      const std::vector<W>& M_r_row,
+      const std::vector<W>& M_r_col,
+      const std::vector<W>& d,
+      const std::vector<W>& d_new
+    );
 
-    void _update_partition(const size_t& ni,
-                           const size_t& r,
-                           const size_t& s,
-                           const std::vector<W>& M_r_row,
-                           const std::vector<W>& M_s_row,
-                           const std::vector<W>& M_r_col,
-                           const std::vector<W>& M_s_col,
-                           const std::vector<W>& d_out_new,
-                           const std::vector<W>& d_in_new,
-                           const std::vector<W>& d_new,
-                           std::vector<size_t>& b,
-                           std::vector<W>& M,
-                           std::vector<W>& d_out,
-                           std::vector<W>& d_in,
-                           std::vector<W>& d);
+    void _update_partition(
+      size_t ni,
+      size_t r,
+      size_t s,
+      const std::vector<W>& M_r_row,
+      const std::vector<W>& M_s_row,
+      const std::vector<W>& M_r_col,
+      const std::vector<W>& M_s_col,
+      const std::vector<W>& d_out_new,
+      const std::vector<W>& d_in_new,
+      const std::vector<W>& d_new,
+      std::vector<size_t>& b,
+      std::vector<W>& M,
+      std::vector<W>& d_out,
+      std::vector<W>& d_in,
+      std::vector<W>& d
+    );
 
-    bool _prepare_for_partition_next(float S,
-                                     std::vector<size_t>& b,
-                                     std::vector<W>& M,
-                                     std::vector<W>& d,
-                                     std::vector<W>& d_out,
-                                     std::vector<W>& d_in,
-                                     size_t& B,
-                                     size_t& B_to_merge,
-                                     _Old_partition& old_b,
-                                     _Old_interblock_edge_count& old_M,
-                                     _Old_block_degrees& old_d,
-                                     _Old_block_degrees_out& old_d_out,
-                                     _Old_block_degrees_in& old_d_in,
-                                     _Old_overall_entropy& old_S,
-                                     _Old_num_blocks& old_B,
-                                     float B_rate);
+    bool _prepare_for_partition_next(
+      float S,
+      std::vector<size_t>& b,
+      std::vector<W>& M,
+      std::vector<W>& d,
+      std::vector<W>& d_out,
+      std::vector<W>& d_in,
+      size_t& B,
+      size_t& B_to_merge,
+      OldPartition& old_b,
+      OldInterblockEdgeCount& old_M,
+      OldBlockDegrees& old_d,
+      OldBlockDegreesOut& old_d_out,
+      OldBlockDegreesIn& old_d_in,
+      OldOverallEntropy& old_S,
+      OldNumBlocks& old_B,
+      float B_rate
+    );
+
+    // utility functions
+    std::vector<size_t> _argsort(const std::vector<float>& arr) {
+      std::vector<size_t> sorted_indices(arr.size());
+      std::iota(sorted_indices.begin(), sorted_indices.end(), 0);  // Fill with 0, 1,
+      std::sort(sorted_indices.begin(), sorted_indices.end(),
+                [&arr](int i, int j){ return arr[i] < arr[j]; });  // Sort by arr values
+      return sorted_indices;
+    }
+
+    std::vector<size_t> _unique(const std::vector<size_t>& arr) {
+      // TODO: consider moving unique_arr to Graph private members
+      std::vector<size_t> unique_arr;
+      std::set<size_t> seen;  // Used to track unique values
+      for (auto elem : arr) {
+        if (seen.find(elem) == seen.end()) {
+          unique_arr.push_back(elem);
+          seen.insert(elem);
+        }   
+      }
+      std::sort(unique_arr.begin(), unique_arr.end());  // Sort unique values
+      return unique_arr;
+    }
+
 
 }; // end of class Graph
 
@@ -273,14 +303,11 @@ void Graph<W>::load_graph_from_tsv(const std::string& FileName) {
 
   _E = _edges.size();
   
-  // TODO: what is the difference between the code below and
-  //       _outNeightbors.resize(_N)
-  _outNeighbors.resize(_N, std::vector<std::pair<size_t, W>>(0));
-  _inNeighbors.resize(_N, std::vector<std::pair<size_t, W>>(0));
+  _out_neighbors.resize(_N);
+  _inNeighbors.resize(_N);
   
-  // TODO: understand difference between emplace and push_back
   for (auto& e : _edges) {
-    _outNeighbors[e.from-1].emplace_back(e.to-1, e.weight);
+    _out_neighbors[e.from-1].emplace_back(e.to-1, e.weight);
     _inNeighbors[e.to-1].emplace_back(e.from-1, e.weight);
   }
 
@@ -298,7 +325,7 @@ void Graph<W>::load_graph_from_tsv(const std::string& FileName) {
     start = tab_pos + 1;
     tab_pos = line.find('\t', start);
     size_t block = std::stoi(line.substr(start, tab_pos - start));
-    truePartitions.push_back(block-1);
+    truePartitions.emplace_back(block-1);
   }
   true_file.close();
 } // end of load_graph_from_tsv
@@ -316,20 +343,21 @@ std::vector<size_t> Graph<W>::partition() {
   std::vector<W> block_degrees_in;
   std::vector<W> block_degrees;
 
-  _initialize_edge_counts(partitions, 
-                          interblock_edge_count, 
-                          block_degrees_out, 
-                          block_degrees_in, 
-                          block_degrees);
+  _initialize_edge_counts(
+    partitions, 
+    interblock_edge_count, 
+    block_degrees_out, 
+    block_degrees_in, 
+    block_degrees
+  );
 
-
-  _Old_partition _old_b;
-  _Old_interblock_edge_count _old_M;
-  _Old_block_degrees _old_d;
-  _Old_block_degrees_out _old_d_out;
-  _Old_block_degrees_in _old_d_in;
-  _Old_overall_entropy _old_S;
-  _Old_num_blocks _old_B;
+  OldPartition _old_b;
+  OldInterblockEdgeCount _old_M;
+  OldBlockDegrees _old_d;
+  OldBlockDegreesOut _old_d_out;
+  OldBlockDegreesIn _old_d_in;
+  OldOverallEntropy _old_S;
+  OldNumBlocks _old_B;
 
   _old_S.large = std::numeric_limits<float>::infinity();
   _old_S.med = std::numeric_limits<float>::infinity();
@@ -338,7 +366,6 @@ std::vector<size_t> Graph<W>::partition() {
   _old_B.large = 0;
   _old_B.med = 0;
   _old_B.small = 0;
-
 
   bool optimal_num_blocks_found = false;
 
@@ -383,8 +410,11 @@ std::vector<size_t> Graph<W>::partition() {
 
   while (!optimal_num_blocks_found) {
     if (verbose)  
-      printf("\nMerging down blocks from %ld to %ld\n", _num_blocks, 
-                                                        _num_blocks - num_blocks_to_merge);
+      printf("\nMerging down blocks from %ld to %ld\n", 
+              _num_blocks, 
+              _num_blocks - num_blocks_to_merge
+            );
+
     // init record for the round
     best_merge_for_each_block.clear();
     best_merge_for_each_block.resize(_num_blocks, -1);
@@ -400,19 +430,12 @@ std::vector<size_t> Graph<W>::partition() {
         
         out_blocks.clear(); 
         in_blocks.clear();
-        // TODO: emplace_back ...
         for (size_t i = 0; i < _num_blocks; i++) {
           if (interblock_edge_count[_num_blocks*current_block + i] != 0) {
-            out_blocks.emplace_back(std::pair<size_t, W> {
-                                      i, 
-                                      interblock_edge_count[_num_blocks*current_block + i]
-                                    });
+            out_blocks.emplace_back(i, interblock_edge_count[_num_blocks*current_block + i]);
           }   
           if (interblock_edge_count[_num_blocks*i + current_block] != 0) {
-            in_blocks.emplace_back(std::pair<size_t, W> {
-                                     i, 
-                                     interblock_edge_count[_num_blocks*i + current_block]
-                                   });
+            in_blocks.emplace_back(i, interblock_edge_count[_num_blocks*i + current_block]);
           }  
         } 
 
@@ -421,32 +444,34 @@ std::vector<size_t> Graph<W>::partition() {
         W num_in_neighbor_edges;
         W num_neighbor_edges;
 
-        _propose_new_partition(current_block,
-                               out_blocks,
-                               in_blocks,
-                               block_partition,
-                               interblock_edge_count,
-                               block_degrees,
-                               1,
-                               _generator,
-                               proposal,
-                               num_out_neighbor_edges,
-                               num_in_neighbor_edges,
-                               num_neighbor_edges,
-                               neighbors,
-                               probabilities);
+        _propose_new_partition(
+          current_block,
+          out_blocks,
+          in_blocks,
+          block_partition,
+          interblock_edge_count,
+          block_degrees,
+          1,
+          _generator,
+          proposal,
+          num_out_neighbor_edges,
+          num_in_neighbor_edges,
+          num_neighbor_edges,
+          neighbors,
+          probabilities
+        );
   
         out_blocks_i.clear();
         out_blocks_w.clear();
         in_blocks_i.clear();
         in_blocks_w.clear();
         for (auto ele : out_blocks) {
-          out_blocks_i.push_back(ele.first);
-          out_blocks_w.push_back(ele.second);
+          out_blocks_i.emplace_back(ele.first);
+          out_blocks_w.emplace_back(ele.second);
         }
         for (auto ele : in_blocks) {
-          in_blocks_i.push_back(ele.first);
-          in_blocks_w.push_back(ele.second);
+          in_blocks_i.emplace_back(ele.first);
+          in_blocks_w.emplace_back(ele.second);
         }
         
         interblock_edge_count_r_row_new.clear();
@@ -456,47 +481,53 @@ std::vector<size_t> Graph<W>::partition() {
 
         W self_edge_count = interblock_edge_count[current_block*_num_blocks+current_block];
 
-        _compute_new_rows_cols_interblock_edge_count(interblock_edge_count,
-                                                     current_block,
-                                                     proposal,
-                                                     out_blocks_i,
-                                                     out_blocks_w,
-                                                     in_blocks_i,
-                                                     in_blocks_w,
-                                                     self_edge_count,
-                                                     1,
-                                                     interblock_edge_count_r_row_new,
-                                                     interblock_edge_count_s_row_new,
-                                                     interblock_edge_count_r_col_new,
-                                                     interblock_edge_count_s_col_new);
+        _compute_new_rows_cols_interblock_edge_count(
+          interblock_edge_count,
+          current_block,
+          proposal,
+          out_blocks_i,
+          out_blocks_w,
+          in_blocks_i,
+          in_blocks_w,
+          self_edge_count,
+          1,
+          interblock_edge_count_r_row_new,
+          interblock_edge_count_s_row_new,
+          interblock_edge_count_r_col_new,
+          interblock_edge_count_s_col_new
+        );
 
         block_degrees_out_new.clear();
         block_degrees_in_new.clear();
         block_degrees_new.clear();
 
-        _compute_new_block_degree(current_block,
-                                  proposal,
-                                  block_degrees_out,
-                                  block_degrees_in,
-                                  block_degrees,
-                                  num_out_neighbor_edges,
-                                  num_in_neighbor_edges,
-                                  num_neighbor_edges,
-                                  block_degrees_out_new,
-                                  block_degrees_in_new,
-                                  block_degrees_new);
+        _compute_new_block_degree(
+          current_block,
+          proposal,
+          block_degrees_out,
+          block_degrees_in,
+          block_degrees,
+          num_out_neighbor_edges,
+          num_in_neighbor_edges,
+          num_neighbor_edges,
+          block_degrees_out_new,
+          block_degrees_in_new,
+          block_degrees_new
+        );
 
-         float delta_entropy = _compute_delta_entropy(current_block,
-                                                      proposal,
-                                                      interblock_edge_count,
-                                                      interblock_edge_count_r_row_new,
-                                                      interblock_edge_count_s_row_new,
-                                                      interblock_edge_count_r_col_new,
-                                                      interblock_edge_count_s_col_new,
-                                                      block_degrees_out,
-                                                      block_degrees_in,
-                                                      block_degrees_out_new,
-                                                      block_degrees_in_new);
+         float delta_entropy = _compute_delta_entropy(
+                                 current_block,
+                                 proposal,
+                                 interblock_edge_count,
+                                 interblock_edge_count_r_row_new,
+                                 interblock_edge_count_s_row_new,
+                                 interblock_edge_count_r_col_new,
+                                 interblock_edge_count_s_col_new,
+                                 block_degrees_out,
+                                 block_degrees_in,
+                                 block_degrees_out_new,
+                                 block_degrees_in_new
+                               );
        
         if (delta_entropy < delta_entropy_for_each_block[current_block]) {
           best_merge_for_each_block[current_block] = proposal;
@@ -505,33 +536,38 @@ std::vector<size_t> Graph<W>::partition() {
       } // end proposal_idx
     } // end current_block
 
-    bestMerges = argsort(delta_entropy_for_each_block);
-    _num_blocks = _carry_out_best_merges(bestMerges,
-                                         best_merge_for_each_block,
-                                         num_blocks_to_merge,
-                                         partitions,
-                                         block_map,
-                                         remaining_blocks);
-    
+    bestMerges = _argsort(delta_entropy_for_each_block);
+    _num_blocks = _carry_out_best_merges(
+                    bestMerges,
+                    best_merge_for_each_block,
+                    num_blocks_to_merge,
+                    partitions,
+                    block_map,
+                    remaining_blocks
+                  );
 
     interblock_edge_count.clear();
     block_degrees_out.clear();
     block_degrees_in.clear();
     block_degrees.clear();
-    _initialize_edge_counts(partitions, 
-                            interblock_edge_count, 
-                            block_degrees_out, 
-                            block_degrees_in, 
-                            block_degrees);
+    _initialize_edge_counts(
+      partitions, 
+      interblock_edge_count, 
+      block_degrees_out, 
+      block_degrees_in, 
+      block_degrees
+    );
 
     int total_num_nodal_moves = 0;
     itr_delta_entropy.clear();
     itr_delta_entropy.resize(max_num_nodal_itr, 0.0);
 
     // TODO: measure the runtime using chrono
-    float overall_entropy = _compute_overall_entropy(interblock_edge_count, 
-                                                     block_degrees_out, 
-                                                     block_degrees_in);
+    float overall_entropy = _compute_overall_entropy(
+                              interblock_edge_count, 
+                              block_degrees_out, 
+                              block_degrees_in
+                            );
     if (verbose)
       printf("overall_entropy: %f\n", overall_entropy);
  
@@ -550,42 +586,40 @@ std::vector<size_t> Graph<W>::partition() {
         W num_in_neighbor_edges;
         W num_neighbor_edges;
 
-        _propose_new_partition(current_block,
-                               _outNeighbors[current_node],
-                               _inNeighbors[current_node],
-                               partitions,
-                               interblock_edge_count,
-                               block_degrees,
-                               0,
-                               _generator,
-                               proposal,
-                               num_out_neighbor_edges,
-                               num_in_neighbor_edges,
-                               num_neighbor_edges,
-                               neighbors,
-                               probabilities);
+        _propose_new_partition(
+          current_block,
+          _out_neighbors[current_node],
+          _inNeighbors[current_node],
+          partitions,
+          interblock_edge_count,
+          block_degrees,
+          0,
+          _generator,
+          proposal,
+          num_out_neighbor_edges,
+          num_in_neighbor_edges,
+          num_neighbor_edges,
+          neighbors,
+          probabilities
+        );
         
         if (proposal != current_block) {
-
           blocks_out.clear();
           count_out.clear();
           blocks_in.clear();
           count_in.clear(); 
          
-          // TODO: prefer const auto& over auto&
-          for (auto& ele : _outNeighbors[current_node]) {
-            // emplace_back
-            blocks_out.push_back(partitions[ele.first]);
-            count_out.push_back(ele.second);
+          for (const auto& ele : _out_neighbors[current_node]) {
+            blocks_out.emplace_back(partitions[ele.first]);
+            count_out.emplace_back(ele.second);
           }
-          for (auto& ele : _inNeighbors[current_node]) {
-            // emplace_back
-            blocks_in.push_back(partitions[ele.first]);
-            count_in.push_back(ele.second);
+          for (const auto& ele : _inNeighbors[current_node]) {
+            blocks_in.emplace_back(partitions[ele.first]);
+            count_in.emplace_back(ele.second);
           }
 
           W self_edge_weight = 0;
-          for (auto& ele : _outNeighbors[current_node]) {
+          for (const auto& ele : _out_neighbors[current_node]) {
             if (ele.first == current_node) self_edge_weight += ele.second;
           }
 
@@ -594,61 +628,69 @@ std::vector<size_t> Graph<W>::partition() {
           interblock_edge_count_r_col_new.clear();
           interblock_edge_count_s_col_new.clear();
 
-          _compute_new_rows_cols_interblock_edge_count(interblock_edge_count,
-                                                       current_block,
-                                                       proposal,
-                                                       blocks_out,
-                                                       count_out,
-                                                       blocks_in,
-                                                       count_in,
-                                                       self_edge_weight,
-                                                       0,
-                                                       interblock_edge_count_r_row_new,
-                                                       interblock_edge_count_s_row_new,
-                                                       interblock_edge_count_r_col_new,
-                                                       interblock_edge_count_s_col_new);
+          _compute_new_rows_cols_interblock_edge_count(
+            interblock_edge_count,
+            current_block,
+            proposal,
+            blocks_out,
+            count_out,
+            blocks_in,
+            count_in,
+            self_edge_weight,
+            0,
+            interblock_edge_count_r_row_new,
+            interblock_edge_count_s_row_new,
+            interblock_edge_count_r_col_new,
+            interblock_edge_count_s_col_new
+          );
           
           block_degrees_out_new.clear();
           block_degrees_in_new.clear();
           block_degrees_new.clear();
 
-          _compute_new_block_degree(current_block,
-                                    proposal,
-                                    block_degrees_out,
-                                    block_degrees_in,
-                                    block_degrees,
-                                    num_out_neighbor_edges,
-                                    num_in_neighbor_edges,
-                                    num_neighbor_edges,
-                                    block_degrees_out_new,
-                                    block_degrees_in_new,
-                                    block_degrees_new);
+          _compute_new_block_degree(
+            current_block,
+            proposal,
+            block_degrees_out,
+            block_degrees_in,
+            block_degrees,
+            num_out_neighbor_edges,
+            num_in_neighbor_edges,
+            num_neighbor_edges,
+            block_degrees_out_new,
+            block_degrees_in_new,
+            block_degrees_new
+          );
 
           float Hastings_correction = 1.0;
           if (num_neighbor_edges > 0) {
-            Hastings_correction = _compute_Hastings_correction(blocks_out,
-                                                               count_out,
-                                                               blocks_in,
-                                                               count_in,
-                                                               proposal,
-                                                               interblock_edge_count,
-                                                               interblock_edge_count_r_row_new,
-                                                               interblock_edge_count_r_col_new,
-                                                               block_degrees,
-                                                               block_degrees_new);
+            Hastings_correction = _compute_Hastings_correction(
+                                    blocks_out,
+                                    count_out,
+                                    blocks_in,
+                                    count_in,
+                                    proposal,
+                                    interblock_edge_count,
+                                    interblock_edge_count_r_row_new,
+                                    interblock_edge_count_r_col_new,
+                                    block_degrees,
+                                    block_degrees_new
+                                  );
           } // calculate Hastings_correction
           
-          float delta_entropy = _compute_delta_entropy(current_block,
-                                                        proposal,
-                                                        interblock_edge_count,
-                                                        interblock_edge_count_r_row_new,
-                                                        interblock_edge_count_s_row_new,
-                                                        interblock_edge_count_r_col_new,
-                                                        interblock_edge_count_s_col_new,
-                                                        block_degrees_out,
-                                                        block_degrees_in,
-                                                        block_degrees_out_new,
-                                                        block_degrees_in_new);
+          float delta_entropy = _compute_delta_entropy(
+                                  current_block,
+                                  proposal,
+                                  interblock_edge_count,
+                                  interblock_edge_count_r_row_new,
+                                  interblock_edge_count_s_row_new,
+                                  interblock_edge_count_r_col_new,
+                                  interblock_edge_count_s_col_new,
+                                  block_degrees_out,
+                                  block_degrees_in,
+                                  block_degrees_out_new,
+                                  block_degrees_in_new
+                                );
 
           float p_accept = std::min(static_cast<float>(std::exp(-beta * delta_entropy))
                                                        * Hastings_correction, 1.0f);
@@ -660,28 +702,32 @@ std::vector<size_t> Graph<W>::partition() {
             total_num_nodal_moves++;
             num_nodal_moves++;
             itr_delta_entropy[itr] += delta_entropy;
-            _update_partition(current_node,
-                              current_block,
-                              proposal,
-                              interblock_edge_count_r_row_new,
-                              interblock_edge_count_s_row_new,
-                              interblock_edge_count_r_col_new,
-                              interblock_edge_count_s_col_new,
-                              block_degrees_out_new,
-                              block_degrees_in_new,
-                              block_degrees_new,
-                              partitions,
-                              interblock_edge_count,
-                              block_degrees_out,
-                              block_degrees_in,
-                              block_degrees);
+            _update_partition(
+              current_node,
+              current_block,
+              proposal,
+              interblock_edge_count_r_row_new,
+              interblock_edge_count_s_row_new,
+              interblock_edge_count_r_col_new,
+              interblock_edge_count_s_col_new,
+              block_degrees_out_new,
+              block_degrees_in_new,
+              block_degrees_new,
+              partitions,
+              interblock_edge_count,
+              block_degrees_out,
+              block_degrees_in,
+              block_degrees
+            );
           }
         } // end if 
       } // end current_node
 
-      float oe = overall_entropy = _compute_overall_entropy(interblock_edge_count, 
-                                                            block_degrees_out, 
-                                                            block_degrees_in);
+      float oe = overall_entropy = _compute_overall_entropy(
+                                     interblock_edge_count, 
+                                     block_degrees_out, 
+                                     block_degrees_in
+                                   );
 
       if (verbose)
         printf("Itr: %ld, number of nodal moves: %d, delta S: %.5f, overall_entropy:%f \n", 
@@ -718,31 +764,35 @@ std::vector<size_t> Graph<W>::partition() {
     //nodal_move_time += std::chrono::duration_cast<std::chrono::milliseconds>(end2 - start2).count();
 
 
-    overall_entropy = _compute_overall_entropy(interblock_edge_count, 
-                                               block_degrees_out, 
-                                               block_degrees_in);
+    overall_entropy = _compute_overall_entropy(
+                        interblock_edge_count, 
+                        block_degrees_out, 
+                        block_degrees_in
+                      );
 
     if (verbose)
       printf("Total number of nodal moves: %d, overall_entropy: %.5f\n", 
               total_num_nodal_moves, overall_entropy);
 
 
-    optimal_num_blocks_found = _prepare_for_partition_next(overall_entropy,
-                                                           partitions,
-                                                           interblock_edge_count,
-                                                           block_degrees,
-                                                           block_degrees_out,
-                                                           block_degrees_in,
-                                                           _num_blocks,
-                                                           num_blocks_to_merge,
-                                                           _old_b,
-                                                           _old_M,
-                                                           _old_d,
-                                                           _old_d_out,
-                                                           _old_d_in,
-                                                           _old_S,
-                                                           _old_B,
-                                                           num_block_reduction_rate);
+    optimal_num_blocks_found = _prepare_for_partition_next(
+                                 overall_entropy,
+                                 partitions,
+                                 interblock_edge_count,
+                                 block_degrees,
+                                 block_degrees_out,
+                                 block_degrees_in,
+                                 _num_blocks,
+                                 num_blocks_to_merge,
+                                 _old_b,
+                                 _old_M,
+                                 _old_d,
+                                 _old_d_out,
+                                 _old_d_in,
+                                 _old_S,
+                                 _old_B,
+                                 num_block_reduction_rate
+                               );
 
     if (verbose) {
       printf("Overall entropy: [%f, %f, %f] \n", _old_S.large, _old_S.med, _old_S.small);
@@ -756,21 +806,22 @@ std::vector<size_t> Graph<W>::partition() {
 
 
 template <typename W>
-void Graph<W>::_initialize_edge_counts(const std::vector<size_t>& partitions,
-                                       std::vector<W>& M, 
-                                       std::vector<W>& d_out, 
-                                       std::vector<W>& d_in, 
-                                       std::vector<W>& d)
-{
+void Graph<W>::_initialize_edge_counts(
+  const std::vector<size_t>& partitions,
+  std::vector<W>& M, 
+  std::vector<W>& d_out, 
+  std::vector<W>& d_in, 
+  std::vector<W>& d
+) {
 
   M.clear();
   M.resize(_num_blocks * _num_blocks, 0);
 
   // compute the initial interblock edge count
-  for (size_t node = 0; node < _outNeighbors.size(); node++) {
-    if (_outNeighbors[node].size() > 0) {
+  for (size_t node = 0; node < _out_neighbors.size(); node++) {
+    if (_out_neighbors[node].size() > 0) {
       size_t k1 = partitions[node]; // get the block of the current node
-      for (auto& e: _outNeighbors[node]) {
+      for (auto& e: _out_neighbors[node]) {
         // get the block of the neighbor node
         M[k1*_num_blocks + partitions[e.first]] += e.second;
       }
@@ -793,21 +844,22 @@ void Graph<W>::_initialize_edge_counts(const std::vector<size_t>& partitions,
 } // end of initialize_edge_counts
 
 template <typename W>
-void Graph<W>::_propose_new_partition(const size_t& r,
-                                      const std::vector< std::pair<size_t, W> >& neighbors_out,
-                                      const std::vector< std::pair<size_t, W> >& neighbors_in,
-                                      const std::vector<size_t>& b,
-                                      const std::vector<W>& M,
-                                      const std::vector<W>& d,
-                                      const bool& agg_move,
-                                      const std::default_random_engine& generator,
-                                      size_t& s,
-                                      W& k_out,
-                                      W& k_in,
-                                      W& k,
-                                      std::vector< std::pair<size_t, W> >& neighbors,
-                                      std::vector<float>& probabilities) 
-{
+void Graph<W>::_propose_new_partition(
+  size_t r,
+  const std::vector< std::pair<size_t, W> >& neighbors_out,
+  const std::vector< std::pair<size_t, W> >& neighbors_in,
+  const std::vector<size_t>& b,
+  const std::vector<W>& M,
+  const std::vector<W>& d,
+  bool agg_move,
+  const std::default_random_engine& generator,
+  size_t& s,
+  W& k_out,
+  W& k_in,
+  W& k,
+  std::vector< std::pair<size_t, W> >& neighbors,
+  std::vector<float>& probabilities
+) {
 
   size_t B = _num_blocks;
 
@@ -815,9 +867,9 @@ void Graph<W>::_propose_new_partition(const size_t& r,
   neighbors.insert(neighbors.end(), neighbors_in.begin(), neighbors_in.end());
 
   k_out = 0;
-  for (auto& it : neighbors_out) k_out += it.second;
+  for (const auto& it : neighbors_out) k_out += it.second;
   k_in = 0;
-  for (auto& it : neighbors_in) k_in += it.second;
+  for (const auto& it : neighbors_in) k_in += it.second;
   k = k_out + k_in;
 
   std::uniform_int_distribution<int> randint(0, B-1); // 0 ~ B-1
@@ -828,7 +880,7 @@ void Graph<W>::_propose_new_partition(const size_t& r,
 
   // create the probabilities array based on the edge weight of each neighbor
   probabilities.clear();
-  for (auto& n : neighbors) {
+  for (const auto& n : neighbors) {
     probabilities.push_back( (float)n.second/k );
   }
   // create a discrete distribution based on the probabilities array
@@ -855,7 +907,7 @@ void Graph<W>::_propose_new_partition(const size_t& r,
   else { // propose by random draw from neighbors of block partition[rand_neighbor]
     std::vector<float> multinomial_prob(B);
     float multinomial_prob_sum = 0;
-    for (int i = 0; i < B; i++) {
+    for (size_t i = 0; i < B; i++) {
       multinomial_prob[i] = (float)(M[u*B + i] + M[i*B + u])/d[u];
       multinomial_prob_sum += multinomial_prob[i];
     }
@@ -863,13 +915,13 @@ void Graph<W>::_propose_new_partition(const size_t& r,
       multinomial_prob[r] = 0;
       // recalculate
       multinomial_prob_sum = 0;
-      for (int i = 0; i < B; i++) {
+      for (size_t i = 0; i < B; i++) {
         multinomial_prob_sum += multinomial_prob[i];
       }
       // check
       if (multinomial_prob_sum == 0) { // the current block has no neighbors. randomly propose a different block
         std::vector<int> candidates;
-        for (int i = 0; i < B; i++) {
+        for (size_t i = 0; i < B; i++) {
           if (i != r) candidates.push_back(i);
         }
         std::uniform_int_distribution<int> choice(0, candidates.size()-1);
@@ -888,14 +940,14 @@ void Graph<W>::_propose_new_partition(const size_t& r,
 template <typename W>
 void Graph<W>::_compute_new_rows_cols_interblock_edge_count(
   const std::vector<W>& M,
-  const size_t& r,
-  const size_t& s,
+  size_t r,
+  size_t s,
   const std::vector<size_t>& b_out,
   const std::vector<W>& count_out,
   const std::vector<size_t>& b_in,
   const std::vector<W>& count_in,
-  const W& count_self,
-  const bool& agg_move,
+  W count_self,
+  bool agg_move,
   std::vector<W>& M_r_row,
   std::vector<W>& M_s_row,
   std::vector<W>& M_r_col,
@@ -982,19 +1034,19 @@ void Graph<W>::_compute_new_rows_cols_interblock_edge_count(
 } // end of compute_new_rows_cols_interblock_edge_count_matrix
 
 template <typename W>
-void Graph<W>::_compute_new_block_degree(const size_t& r,
-                                         const size_t& s,
-                                         const std::vector<W>& d_out,
-                                         const std::vector<W>& d_in,
-                                         const std::vector<W>& d,
-                                         const W& k_out,
-                                         const W& k_in,
-                                         const W& k,
-                                         // for return
-                                         std::vector<W>& d_out_new,
-                                         std::vector<W>& d_in_new,
-                                         std::vector<W>& d_new)
-{
+void Graph<W>::_compute_new_block_degree(
+  size_t r,
+  size_t s,
+  const std::vector<W>& d_out,
+  const std::vector<W>& d_in,
+  const std::vector<W>& d,
+  W k_out,
+  W k_in,
+  W k,
+  std::vector<W>& d_out_new,
+  std::vector<W>& d_in_new,
+  std::vector<W>& d_new
+) {
 
   d_out_new = d_out;
   d_in_new = d_in;
@@ -1013,18 +1065,19 @@ void Graph<W>::_compute_new_block_degree(const size_t& r,
 
 
 template <typename W>
-float Graph<W>::_compute_delta_entropy(const size_t& r,
-                                       const size_t& s,
-                                       const std::vector<W>& M,
-                                       const std::vector<W>& M_r_row,
-                                       const std::vector<W>& M_s_row,
-                                       const std::vector<W>& M_r_col,
-                                       const std::vector<W>& M_s_col,
-                                       const std::vector<W>& d_out,
-                                       const std::vector<W>& d_in,
-                                       const std::vector<W>& d_out_new,
-                                       const std::vector<W>& d_in_new)
-{
+float Graph<W>::_compute_delta_entropy(
+  size_t r,
+  size_t s,
+  const std::vector<W>& M,
+  const std::vector<W>& M_r_row,
+  const std::vector<W>& M_s_row,
+  const std::vector<W>& M_r_col,
+  const std::vector<W>& M_s_col,
+  const std::vector<W>& d_out,
+  const std::vector<W>& d_in,
+  const std::vector<W>& d_out_new,
+  const std::vector<W>& d_in_new
+) {
   
   size_t B = _num_blocks;
 
@@ -1087,13 +1140,14 @@ float Graph<W>::_compute_delta_entropy(const size_t& r,
 
 
 template <typename W>
-size_t Graph<W>::_carry_out_best_merges(const std::vector<size_t>& bestMerges,
-                                        const std::vector<int>& best_merge_for_each_block,
-                                        const size_t& B_to_merge,
-                                        std::vector<size_t>& b,
-                                        std::vector<size_t>& block_map,
-                                        std::vector<size_t>& remaining_blocks)
-{
+size_t Graph<W>::_carry_out_best_merges(
+  const std::vector<size_t>& bestMerges,
+  const std::vector<int>& best_merge_for_each_block,
+  size_t B_to_merge,
+  std::vector<size_t>& b,
+  std::vector<size_t>& block_map,
+  std::vector<size_t>& remaining_blocks
+) {
   size_t B = _num_blocks;
   
   block_map.clear();
@@ -1118,7 +1172,7 @@ size_t Graph<W>::_carry_out_best_merges(const std::vector<size_t>& bestMerges,
     }
   }
   
-  remaining_blocks = unique(b);
+  remaining_blocks = _unique(b);
   block_map.clear();
   block_map.resize(B, -1);
   for (size_t i = 0; i < remaining_blocks.size(); i++) {
@@ -1133,10 +1187,11 @@ size_t Graph<W>::_carry_out_best_merges(const std::vector<size_t>& bestMerges,
 } // end of carry_out_best_merges
 
 template <typename W>
-float Graph<W>::_compute_overall_entropy(const std::vector<W>& M,
-                                         const std::vector<W>& d_out,
-                                         const std::vector<W>& d_in) 
-{
+float Graph<W>::_compute_overall_entropy(
+  const std::vector<W>& M,
+  const std::vector<W>& d_out,
+  const std::vector<W>& d_in
+) {
   size_t B = _num_blocks;
   
   float data_S = 0;
@@ -1149,7 +1204,8 @@ float Graph<W>::_compute_overall_entropy(const std::vector<W>& M,
   }
 
   float model_S_term = (float)B*B/_E;
-  float model_S = (float)(_E * (1 + model_S_term) * log(1 + model_S_term)) - (model_S_term * log(model_S_term)) + (_N * log(B));
+  float model_S = (float)(_E * (1 + model_S_term) * log(1 + model_S_term)) - 
+                          (model_S_term * log(model_S_term)) + (_N * log(B));
 
   return model_S + data_S;
 
@@ -1157,17 +1213,18 @@ float Graph<W>::_compute_overall_entropy(const std::vector<W>& M,
 
 
 template <typename W>
-float Graph<W>::_compute_Hastings_correction(const std::vector<size_t>& b_out,
-                                             const std::vector<W>& count_out,
-                                             const std::vector<size_t>& b_in,
-                                             const std::vector<W>& count_in,
-                                             const size_t& s,
-                                             const std::vector<W>& M,
-                                             const std::vector<W>& M_r_row,
-                                             const std::vector<W>& M_r_col,
-                                             const std::vector<W>& d,
-                                             const std::vector<W>& d_new)
-{
+float Graph<W>::_compute_Hastings_correction(
+  const std::vector<size_t>& b_out,
+  const std::vector<W>& count_out,
+  const std::vector<size_t>& b_in,
+  const std::vector<W>& count_in,
+  size_t s,
+  const std::vector<W>& M,
+  const std::vector<W>& M_r_row,
+  const std::vector<W>& M_r_col,
+  const std::vector<W>& d,
+  const std::vector<W>& d_new
+) {
   size_t B = _num_blocks;
  
   float p_forward = 0;
@@ -1185,22 +1242,23 @@ float Graph<W>::_compute_Hastings_correction(const std::vector<size_t>& b_out,
 
 
 template <typename W>
-void Graph<W>::_update_partition(const size_t& ni,
-                                 const size_t& r,
-                                 const size_t& s, 
-                                 const std::vector<W>& M_r_row,
-                                 const std::vector<W>& M_s_row,
-                                 const std::vector<W>& M_r_col,
-                                 const std::vector<W>& M_s_col,
-                                 const std::vector<W>& d_out_new,
-                                 const std::vector<W>& d_in_new,
-                                 const std::vector<W>& d_new,
-                                 std::vector<size_t>& b,
-                                 std::vector<W>& M,
-                                 std::vector<W>& d_out,
-                                 std::vector<W>& d_in,
-                                 std::vector<W>& d)
-{
+void Graph<W>::_update_partition(
+  size_t ni,
+  size_t r,
+  size_t s, 
+  const std::vector<W>& M_r_row,
+  const std::vector<W>& M_s_row,
+  const std::vector<W>& M_r_col,
+  const std::vector<W>& M_s_col,
+  const std::vector<W>& d_out_new,
+  const std::vector<W>& d_in_new,
+  const std::vector<W>& d_new,
+  std::vector<size_t>& b,
+  std::vector<W>& M,
+  std::vector<W>& d_out,
+  std::vector<W>& d_in,
+  std::vector<W>& d
+) {
   size_t B = _num_blocks;
   b[ni] = s;
   for (size_t i = 0; i < B; i++) {
@@ -1216,23 +1274,24 @@ void Graph<W>::_update_partition(const size_t& ni,
 } // end of update_partition
 
 template <typename W>
-bool Graph<W>::_prepare_for_partition_next(float S,
-                                           std::vector<size_t>& b,
-                                           std::vector<W>& M,
-                                           std::vector<W>& d,
-                                           std::vector<W>& d_out,
-                                           std::vector<W>& d_in,
-                                           size_t& B,
-                                           size_t& B_to_merge,
-                                           _Old_partition& old_b,
-                                           _Old_interblock_edge_count& old_M,
-                                           _Old_block_degrees& old_d,
-                                           _Old_block_degrees_out& old_d_out,
-                                           _Old_block_degrees_in& old_d_in,
-                                           _Old_overall_entropy& old_S,
-                                           _Old_num_blocks& old_B,
-                                           float B_rate)
-{
+bool Graph<W>::_prepare_for_partition_next(
+  float S,
+  std::vector<size_t>& b,
+  std::vector<W>& M,
+  std::vector<W>& d,
+  std::vector<W>& d_out,
+  std::vector<W>& d_in,
+  size_t& B,
+  size_t& B_to_merge,
+  OldPartition& old_b,
+  OldInterblockEdgeCount& old_M,
+  OldBlockDegrees& old_d,
+  OldBlockDegreesOut& old_d_out,
+  OldBlockDegreesIn& old_d_in,
+  OldOverallEntropy& old_S,
+  OldNumBlocks& old_B,
+  float B_rate
+) {
   bool optimal_B_found = false;
   int index;
   
