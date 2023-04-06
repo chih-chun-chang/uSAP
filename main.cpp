@@ -5,11 +5,31 @@
 
 int main (int argc, char *argv[]) {
   
-  std::string FileName("../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_1000_nodes");
+  std::string FileName("../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar");
   
-  // TODO
-  if(argc == 2) {
-    FileName = argv[1]; 
+  if(argc != 2) {
+    std::cerr << "usage: ./run [Number of Nodes]\n";
+    std::exit(1);
+  }
+
+  int num_nodes = std::stoi(argv[1]);
+
+  switch(num_nodes)  {
+    case 1000:
+      FileName += "_1000_nodes";
+      break;
+    case 5000:
+      FileName += "_5000_nodes";
+      break;
+    case 20000:
+      FileName += "_20000_nodes";
+      break;
+    case 50000:
+      FileName += "_50000_nodes";
+      break;
+    default:
+      std::cerr << "usage: ./run [Number of Nodes=1000/5000/20000/50000]\n";
+      std::exit(1);
   }
   
   sgp::Graph<int> g(FileName);

@@ -1365,7 +1365,7 @@ bool Graph<W>::_prepare_for_partition_next(
     else {
       // the higher segment in the bracket is bigger
       if ((old_B.large-old_B.med) >= (old_B.med-old_B.small)) {  
-        int next_B_to_try = old_B.med + (int)(old_B.large - old_B.med) * 0.618;
+        int next_B_to_try = old_B.med + static_cast<int>(round((old_B.large - old_B.med) * 0.618));
         B_to_merge = old_B.large - next_B_to_try;
         B = old_B.large;
         b = old_b.large;
@@ -1375,7 +1375,7 @@ bool Graph<W>::_prepare_for_partition_next(
         d_in = old_d_in.large;
       }
       else {
-        int next_B_to_try = old_B.small + (int)(old_B.med - old_B.small) * 0.618;
+        int next_B_to_try = old_B.small + static_cast<int>(round((old_B.med - old_B.small) * 0.618));
         B_to_merge = old_B.med - next_B_to_try;
         B = old_B.med;
         b = old_b.med;
