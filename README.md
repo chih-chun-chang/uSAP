@@ -17,11 +17,11 @@ make
 
 ### Static Graph Statistics
 The dataset is from [2022 Streaming Partition Challenge Datasets with Known Truth Partitions](http://graphchallenge.mit.edu/data-sets)
-| Vertices | Edges   | Truth Partitions | Execution Time (ms) |
-| -------- | -----   | ---------------- | ------------------  |
-| 1000     | 8067    | 11               |  3209               |
-| 5000     | 50850   | 19               |  72419              |
+| Vertices | Edges   | Truth Partitions | Sequential Exe. Time | Parallel Block Merge (taskflow) |
+| -------- | -----   | ---------------- | ------------------ | ---------------|
+| 1000     | 8067    | 11               |  711 ms                   | 525 ms |
+| 5000     | 50850   | 19               |  22482 ms                 | 10412 |
+| 20000    | 473914  |                  |                           | |
 
 ## TODO
-- [ ] Parallel Blockwise Merge (Taskflow)
 - [ ] Streaming Graph Input

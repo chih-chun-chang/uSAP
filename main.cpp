@@ -1,12 +1,13 @@
 #include <iostream>
 #include <chrono>
 #include "include/graph.hpp"
+#include "include/graph_parallel.hpp"
 #include "include/evaluate.hpp"
 
 int main (int argc, char *argv[]) {
   
   std::string FileName("../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar");
-  
+ 
   if(argc != 2) {
     std::cerr << "usage: ./run [Number of Nodes]\n";
     std::exit(1);
@@ -31,7 +32,7 @@ int main (int argc, char *argv[]) {
       std::cerr << "usage: ./run [Number of Nodes=1000/5000/20000/50000]\n";
       std::exit(1);
   }
-  
+
   sgp::Graph<int> g(FileName);
 
   std::cout << "Number of nodes: " << g.num_nodes() << std::endl;
@@ -47,7 +48,24 @@ int main (int argc, char *argv[]) {
     << " ms" << std::endl;
 
   std::cout << std::endl;
-  bf::evaluate<size_t>(g.truePartitions, blocks);
+  //bf::evaluate<size_t>(g.truePartitions, blocks);
 
+  // parallel
+  sgp::Graph_P<int> g_p(FileName);
+  std::cout << "Number of nodes: " << g_p.num_nodes() << std::endl;
+  std::cout << "Number of edges: " << g_p.num_edges() << std::endl;
+  g_p.verbose = false;
+
+  std::cout << "Partitioning..." << std::endl;
+  start = std::chrono::steady_clock::now();
+  std::vector<size_t> blocks2 = g_p.partition();
+  end = std::chrono::steady_clock::now();
+  std::cout << "(Parallel) Partitioning time: " <<  
+    std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+    << " ms" << std::endl;
+
+  std::cout << std::endl;
+  //bf::evaluate<size_t>(g_p.truePartitions, blocks2);
+  
   return 0;
 }
