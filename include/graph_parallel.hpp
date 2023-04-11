@@ -45,10 +45,19 @@ class Graph_P {
     const size_t& num_nodes() const { return _N; }
     const size_t& num_edges() const { return _E; }
     
+    // TODO: enable per-thread storage without thread_local
     // constructor
-    Graph_P(const std::string& FileName) {
+    Graph_P(const std::string& FileName, size_t num_threads) :
+      _executor(num_threads),
+      _pt_out_blocks(num_threads)  // pt: per_thread
+       {
       load_graph_from_tsv(FileName);
       _generator.seed(_rd());
+      
+      // TODO: 
+      // create per-thread storage
+      //std::vector<std::vector< std::pair<size_t, W> >> out_blocks;
+
     }
 
     // partition ground truth
@@ -69,6 +78,8 @@ class Graph_P {
     std::default_random_engine _generator;
    
     tf::Executor _executor;
+
+    // TODO: reuse taskflow
 
     struct OldPartition {
       std::vector<size_t> large;
@@ -421,6 +432,11 @@ std::vector<size_t> Graph_P<W>::partition() {
     // block merge
     //auto block_merge_start = std::chrono::steady_clock::now();
     tf::Taskflow taskflow;
+    
+    // TODO: resue
+    //taskflow.clear();
+    
+    // TODO: try to use for_each instead of explicitly creating B tasks
     for (size_t current_block = 0; current_block < _num_blocks; current_block++) {
       
       taskflow.emplace([this,
@@ -432,19 +448,36 @@ std::vector<size_t> Graph_P<W>::partition() {
         &best_merge_for_each_block,
         &delta_entropy_for_each_block,
         current_block ](){
-        
-          std::vector< std::pair<size_t, W> > out_blocks;
-          std::vector< std::pair<size_t, W> > in_blocks;
-          std::vector< std::pair<size_t, W> > neighbors;
-          std::vector<float> probabilities;
-          std::vector<W> interblock_edge_count_r_row_new;
-          std::vector<W> interblock_edge_count_s_row_new;
-          std::vector<W> interblock_edge_count_r_col_new;
-          std::vector<W> interblock_edge_count_s_col_new;
-          std::vector<W> block_degrees_out_new;
-          std::vector<W> block_degrees_in_new;
-          std::vector<W> block_degrees_new;
-        
+          
+          // TODO:
+          auto& out_blocks = _pt_out_blocks[_executor.this_worker_id()];
+          
+          // TODO: using thread_local is not a good practice ...
+          thread_local std::vector< std::pair<size_t, W> > out_blocks;
+          thread_local std::vector< std::pair<size_t, W> > in_blocks;
+          thread_local std::vector< std::pair<size_t, W> > neighbors;
+          thread_local std::vector<float> probabilities;
+          thread_local std::vector<W> interblock_edge_count_r_row_new;
+          thread_local std::vector<W> interblock_edge_count_s_row_new;
+          thread_local std::vector<W> interblock_edge_count_r_col_new;
+          thread_local std::vector<W> interblock_edge_count_s_col_new;
+          thread_local std::vector<W> block_degrees_out_new;
+          thread_local std::vector<W> block_degrees_in_new;
+          thread_local std::vector<W> block_degrees_new;
+
+          out_blocks.clear();
+          in_blocks.clear();
+          neighbors.clear();
+          probabilities.clear();
+          interblock_edge_count_r_row_new.clear();
+          interblock_edge_count_s_row_new.clear();
+          interblock_edge_count_r_col_new.clear();
+          interblock_edge_count_s_col_new.clear();
+          block_degrees_out_new.clear();
+          block_degrees_in_new.clear();
+          block_degrees_new.clear();
+
+          // TODO: preamature copy??? indirect mapping might help
           for (size_t proposal_idx = 0; proposal_idx < num_agg_proposals_per_block; proposal_idx++) {
             out_blocks.clear();
             in_blocks.clear();
@@ -515,18 +548,18 @@ std::vector<size_t> Graph_P<W>::partition() {
             );
             
             float delta_entropy = _compute_delta_entropy(
-                                    current_block,
-                                    proposal,
-                                    interblock_edge_count,
-                                    interblock_edge_count_r_row_new,
-                                    interblock_edge_count_s_row_new,
-                                    interblock_edge_count_r_col_new,
-                                    interblock_edge_count_s_col_new,
-                                    block_degrees_out,
-                                    block_degrees_in,
-                                    block_degrees_out_new,
-                                    block_degrees_in_new
-                                  );
+              current_block,
+              proposal,
+              interblock_edge_count,
+              interblock_edge_count_r_row_new,
+              interblock_edge_count_s_row_new,
+              interblock_edge_count_r_col_new,
+              interblock_edge_count_s_col_new,
+              block_degrees_out,
+              block_degrees_in,
+              block_degrees_out_new,
+              block_degrees_in_new
+            );
             
             if (delta_entropy < delta_entropy_for_each_block[current_block]) {
               best_merge_for_each_block[current_block] = proposal;
@@ -535,6 +568,10 @@ std::vector<size_t> Graph_P<W>::partition() {
           } // end for proposal_idx
       });
     }      
+    
+    // TODO: for debugging
+    //taskflow.dump(std::cout);
+
     _executor.run(taskflow).wait();
     //auto block_merge_end = std::chrono::steady_clock::now();
     //block_merge_time += std::chrono::duration_cast<std::chrono::milliseconds>
@@ -821,6 +858,7 @@ void Graph_P<W>::_initialize_edge_counts(
   tf::Taskflow taskflow;
 
   M.clear();
+  // TODO: adjacency list ...?
   M.resize(_num_blocks * _num_blocks, 0);
 
   // compute the initial interblock edge count
@@ -919,7 +957,7 @@ void Graph_P<W>::_propose_new_partition(
     }
   }
   else { // propose by random draw from neighbors of block partition[rand_neighbor]
-    // TODO
+    // TODO: make pt-storage as much as possible
     std::vector<float> multinomial_prob(B);
     float multinomial_prob_sum = 0;
     for (size_t i = 0; i < B; i++) {
@@ -980,10 +1018,22 @@ void Graph_P<W>::_compute_new_rows_cols_interblock_edge_count(
     M_r_col.resize(B, 0);
   }
   else {
+    
+    M_r_row.resize(B);
+    M_r_col.resize(B);
+
+    // TODO: fuse the following four for-loops into one
+    //for(size_t i=0; i<B; i++) {
+    //  M_r_row[i] = 0;
+    //  *(M_r_row.begin() + i) = *(M.begin() + r*B + i)
+    //  M_r_col[i] = M[i*M + r];
+    //}
+
     M_r_row.resize(B, 0);
     M_r_col.resize(B, 0);
     // TODO: taskflow::for_each_index
     
+    // TODO: for POD copy, prefer std::memcpy over std::copy
     std::copy(M.begin() + r*B, M.begin() + r*B + B, M_r_row.begin());
     //taskflow.for_each_index(0, (int)B, 1, [&](int i){std::cout << i << " ";});
 
@@ -1100,6 +1150,7 @@ float Graph_P<W>::_compute_delta_entropy(
   size_t B = _num_blocks;
 
   float delta_entropy = 0;
+  // TODO: parallelize the following may help
   for (size_t i = 0; i < B; i++) {
     if (M_r_row[i] != 0) {
       delta_entropy -= M_r_row[i] * std::log(static_cast<float>
