@@ -40,12 +40,12 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
             <td>753 ms</td>
         </tr>
         <tr>
-            <td>Propose</td>
-            <td>Compute_New_M</td>
-            <td>Compute_Delta_Entropy</td>
-            <td>Propose</td>
-            <td>Compute_New_M</td>
-            <td>Compute_Delta_Entropy</td>
+            <td>_Propose</td>
+            <td>_New_M</td>
+            <td>_Delta_Entropy</td>
+            <td>_Propose</td>
+            <td>_New_M</td>
+            <td>_Delta_Entropy</td>
             <td></td>
         </tr>
         <tr>
@@ -81,12 +81,12 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
             <td>22159 ms</td>
         </tr>
         <tr>
-            <td>Propose</td>
-            <td>Compute_New_M</td>
-            <td>Compute_Delta_Entropy</td>
-            <td>Propose</td>
-            <td>Compute_New_M</td>
-            <td>Compute_Delta_Entropy</td>
+            <td>_Propose</td>
+            <td>_New_M</td>
+            <td>_Delta_Entropy</td>
+            <td>_Propose</td>
+            <td>_New_M</td>
+            <td>_Delta_Entropy</td>
             <td></td>
         </tr>
         <tr>
