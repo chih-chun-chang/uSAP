@@ -21,7 +21,7 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 | -------- | -----   | ---------------- | ------------------ | ---------------|
 | 1000     | 8067    | 11               |  711 ms                   | 525 ms |
 | 5000     | 50850   | 19               |  22482 ms                 | 10412 |
-| 20000    | 473914  |                  |                           | |
+| 20000    | 473914  |                  |  3913162 ms             | |
 
 ### Execution Time Breakdown
 * 1000

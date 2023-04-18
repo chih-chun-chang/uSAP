@@ -33,11 +33,11 @@ int main (int argc, char *argv[]) {
       std::exit(1);
   }
 
-  //sgp::Graph<int> g(FileName);
+  sgp::Graph<int> g(FileName);
 
-  //std::cout << "Number of nodes: " << g.num_nodes() << std::endl;
-  //std::cout << "Number of edges: " << g.num_edges() << std::endl;
-  //g.verbose = false;
+  std::cout << "Number of nodes: " << g.num_nodes() << std::endl;
+  std::cout << "Number of edges: " << g.num_edges() << std::endl;
+  g.verbose = false;
 
   //std::cout << "Partitioning..." << std::endl;
   //auto start = std::chrono::steady_clock::now();
@@ -48,7 +48,7 @@ int main (int argc, char *argv[]) {
   //  << " ms" << std::endl;
 
   //std::cout << std::endl;
-  ////bf::evaluate<size_t>(g.truePartitions, blocks);
+  //bf::evaluate<size_t>(g.truePartitions, blocks);
 
   // parallel
   sgp::Graph_P<int> g_p(FileName);
@@ -57,15 +57,15 @@ int main (int argc, char *argv[]) {
   g_p.verbose = false;
 
   std::cout << "Partitioning..." << std::endl;
-  auto start = std::chrono::steady_clock::now();
+  auto start1 = std::chrono::steady_clock::now();
   std::vector<size_t> blocks2 = g_p.partition();
-  auto end = std::chrono::steady_clock::now();
+  auto end1 = std::chrono::steady_clock::now();
   std::cout << "(Parallel) Partitioning time: " <<  
-    std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+    std::chrono::duration_cast<std::chrono::milliseconds>(end1 - start1).count() 
     << " ms" << std::endl;
 
   std::cout << std::endl;
-  //bf::evaluate<size_t>(g_p.truePartitions, blocks2);
+  bf::evaluate<size_t>(g_p.truePartitions, blocks2);
   
   return 0;
 }
