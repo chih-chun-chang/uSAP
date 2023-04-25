@@ -57,7 +57,11 @@ class Graph_P {
       _pt_interblock_edge_count_s_col_new(num_threads),
       _pt_block_degrees_out_new(num_threads),
       _pt_block_degrees_in_new(num_threads),
-      _pt_block_degrees_new(num_threads)  
+      _pt_block_degrees_new(num_threads),
+      _pt_r_row(num_threads),
+      _pt_s_row(num_threads),
+      _pt_r_col(num_threads),
+      _pt_s_col(num_threads)
     {
       load_graph_from_tsv(FileName);
       _generator.seed(_rd());
@@ -70,15 +74,11 @@ class Graph_P {
 
     size_t _N; // number of node
     size_t _E; // number of edge
-    
+    size_t _num_blocks; 
+
     std::vector<Edge> _edges;
     std::vector<std::vector<std::pair<size_t, W>>> _out_neighbors;
     std::vector<std::vector<std::pair<size_t, W>>> _in_neighbors;
-
-    size_t _num_blocks;
-
-    std::random_device _rd;
-    std::default_random_engine _generator;
 
     // taskflow   
     tf::Executor _executor;
@@ -92,6 +92,10 @@ class Graph_P {
     std::vector< std::vector<W>> _pt_block_degrees_out_new;
     std::vector< std::vector<W>> _pt_block_degrees_in_new;
     std::vector< std::vector<W>> _pt_block_degrees_new;
+    std::vector< std::vector<W>> _pt_r_row;
+    std::vector< std::vector<W>> _pt_s_row;
+    std::vector< std::vector<W>> _pt_r_col;
+    std::vector< std::vector<W>> _pt_s_col;
 
     // save data for golden ratio bracket
     struct Old {
@@ -122,6 +126,8 @@ class Graph_P {
     };
   
     Old _old;  
+    std::random_device _rd;
+    std::default_random_engine _generator;
     std::vector< std::vector<std::pair<size_t, W>> > _Mrow;
     std::vector< std::vector<std::pair<size_t, W>> > _Mcol;
     std::vector<size_t> _partitions;
@@ -192,11 +198,11 @@ class Graph_P {
       const std::vector<W>& M_r_col,
       const std::vector<W>& M_s_col,
       const std::vector<W>& d_out_new,
-      const std::vector<W>& d_in_new
-      //std::vector<W>& Mrows,
-      //std::vector<W>& Mcols,
-      //std::vector<W>& Mrows2,
-      //std::vector<W>& Mcols2
+      const std::vector<W>& d_in_new,
+      std::vector<W>& r_row,
+      std::vector<W>& s_row,
+      std::vector<W>& r_col,
+      std::vector<W>& s_col
     );        
      
     size_t _carry_out_best_merges(
@@ -378,12 +384,12 @@ std::vector<size_t> Graph_P<W>::partition() {
   std::vector<size_t> remaining_blocks;
   std::vector<float> itr_delta_entropy;
 
-  //Hasting Correction
-  //Delta Entropy
-  std::vector<W> Mrows;
-  std::vector<W> Mcols;
-  std::vector<W> Mrows2;
-  std::vector<W> Mcols2;
+  // for hasting correction and delta entropy
+  std::vector<W> r_row;
+  std::vector<W> s_row;
+  std::vector<W> r_col;
+  std::vector<W> s_col;
+
 
   while (!optimal_num_blocks_found) {
     if (verbose)  
@@ -406,15 +412,13 @@ std::vector<size_t> Graph_P<W>::partition() {
     // TODO: try to use for_each instead of explicitly creating B tasks
     _taskflow.clear();
     for (size_t current_block = 0; current_block < _num_blocks; current_block++) {
-      _taskflow.emplace([this,
-        &Mrows,
-        &Mcols,
-        &Mrows2,
-        &Mcols2,
+      _taskflow.emplace([
+        this,
         &block_partition,
         &best_merge_for_each_block,
         &delta_entropy_for_each_block,
-        current_block ](){
+        current_block 
+      ](){
           
           auto wid = _executor.this_worker_id();
           auto& prob = _pt_probabilities[wid];
@@ -425,6 +429,10 @@ std::vector<size_t> Graph_P<W>::partition() {
           auto& block_degrees_out_new = _pt_block_degrees_out_new[wid];
           auto& block_degrees_in_new = _pt_block_degrees_in_new[wid];
           auto& block_degrees_new = _pt_block_degrees_new[wid];
+          auto& r_row = _pt_r_row[wid];
+          auto& s_row = _pt_s_row[wid];
+          auto& r_col = _pt_r_col[wid];
+          auto& s_col = _pt_s_col[wid];
 
           for (size_t proposal_idx = 0; proposal_idx < num_agg_proposals_per_block; proposal_idx++) {
             
@@ -486,11 +494,11 @@ std::vector<size_t> Graph_P<W>::partition() {
               interblock_edge_count_r_col_new,
               interblock_edge_count_s_col_new,
               block_degrees_out_new,
-              block_degrees_in_new
-              //Mrows,
-              //Mcols,
-              //Mrows2,
-              //Mcols2
+              block_degrees_in_new,
+              r_row,
+              s_row,
+              r_col,
+              s_col
             );
             
             if (delta_entropy < delta_entropy_for_each_block[current_block]) {
@@ -594,10 +602,10 @@ std::vector<size_t> Graph_P<W>::partition() {
               interblock_edge_count_r_row_new,
               interblock_edge_count_r_col_new,
               block_degrees_new,
-              Mrows,
-              Mcols
+              r_row,
+              r_col
             );
-          } // calculate Hastings_correction
+          }
           
           float delta_entropy = _compute_delta_entropy(
             current_block,
@@ -607,11 +615,11 @@ std::vector<size_t> Graph_P<W>::partition() {
             interblock_edge_count_r_col_new,
             interblock_edge_count_s_col_new,
             block_degrees_out_new,
-            block_degrees_in_new
-            //Mrows,
-            //Mcols,
-            //Mrows2,
-            //Mcols2
+            block_degrees_in_new,
+            r_row,
+            s_row,
+            r_col,
+            s_col
           );
 
           float p_accept = std::min(
@@ -712,8 +720,8 @@ void Graph_P<W>::_initialize_edge_counts()
       size_t k1 = _partitions[node];
       for (const auto& [v, w] : _out_neighbors[node]) {
         size_t k2 = _partitions[v];
-        _Mrow[k1].emplace_back(std::make_pair(k2, w));
-        _Mcol[k2].emplace_back(std::make_pair(k1, w));
+        _Mrow[k1].emplace_back(k2, w);
+        _Mcol[k2].emplace_back(k1, w);
       }
     }
   }
@@ -1041,11 +1049,11 @@ float Graph_P<W>::_compute_delta_entropy(
   const std::vector<W>& M_r_col,
   const std::vector<W>& M_s_col,
   const std::vector<W>& d_out_new,
-  const std::vector<W>& d_in_new
-  //std::vector<W>& Mrows,
-  //std::vector<W>& Mcols,
-  //std::vector<W>& Mrows2,
-  //std::vector<W>& Mcols2
+  const std::vector<W>& d_in_new,
+  std::vector<W>& r_row,
+  std::vector<W>& s_row,
+  std::vector<W>& r_col,
+  std::vector<W>& s_col
   )
 {
   
@@ -1075,56 +1083,51 @@ float Graph_P<W>::_compute_delta_entropy(
       }
     }
   }
-  //Mrows.clear();
-  //Mcols.clear();
-  //Mrows2.clear();
-  //Mcols2.clear();
-  //Mrows.resize(_num_blocks);
-  //Mcols.resize(_num_blocks);
-  //Mrows2.resize(_num_blocks);
-  //Mcols2.resize(_num_blocks);
-  std::vector<W> tmp1(_num_blocks);
-  std::vector<W> tmp2(_num_blocks);
-  std::vector<W> tmp3(_num_blocks);
-  std::vector<W> tmp4(_num_blocks);
-  
+  r_row.clear();
+  s_row.clear();
+  r_col.clear();
+  s_col.clear();
+  r_row.resize(_num_blocks);
+  s_row.resize(_num_blocks);
+  r_col.resize(_num_blocks);
+  s_col.resize(_num_blocks);
   for (const auto& [v, w] : _Mrow[r]) {
     if (w != 0) {
-      tmp1[v] += w;
+      r_row[v] += w;
     }
   }
   for (const auto& [v, w] : _Mrow[s]) {
     if (w != 0) { 
-      tmp2[v] += w;
+      s_row[v] += w;
     }
   }
   for (const auto& [v, w] : _Mcol[r]) {
     if (w != 0) {
-      tmp3[v] += w;
+      r_col[v] += w;
     }
   }
   for (const auto& [v, w] : _Mcol[s]) {
     if (w != 0) {
-      tmp4[v] += w;
+      s_col[v] += w;
     }
   }
   for (size_t v = 0; v < _num_blocks; v++) {
-    if (tmp1[v] != 0) { 
-      delta_entropy += tmp1[v] * std::log(static_cast<float> (tmp1[v]) / (_block_degrees_in[v] * _block_degrees_out[r]));
+    if (r_row[v] != 0) {
+      delta_entropy += r_row[v] * std::log(static_cast<float> (r_row[v]) / (_block_degrees_in[v] * _block_degrees_out[r]));
     }
-    if (tmp2[v] != 0) {
-      delta_entropy += tmp2[v] * std::log(static_cast<float> (tmp2[v]) / (_block_degrees_in[v] * _block_degrees_out[s]));
+    if (s_row[v] != 0) {
+      delta_entropy += s_row[v] * std::log(static_cast<float> (s_row[v]) / (_block_degrees_in[v] * _block_degrees_out[s]));
     }
     if (v != r && v != s) {
-      if (tmp3[v] != 0) {
-        delta_entropy += tmp3[v] * std::log(static_cast<float> (tmp3[v]) / (_block_degrees_out[v] * _block_degrees_in[r]));
+      if (r_col[v] != 0) {
+        delta_entropy += r_col[v] * std::log(static_cast<float> (r_col[v]) / (_block_degrees_out[v] * _block_degrees_in[r]));
       }
-      if (tmp4[v] != 0) {
-        delta_entropy += tmp4[v] * std::log(static_cast<float> (tmp4[v]) / (_block_degrees_out[v] * _block_degrees_in[s])); 
+      if (s_col[v] != 0) {
+        delta_entropy += s_col[v] * std::log(static_cast<float> (s_col[v]) / (_block_degrees_out[v] * _block_degrees_in[s]));
       }
     }
   }
-  
+
   return delta_entropy;
 } // end of compute_delta_entropy
 
@@ -1181,7 +1184,7 @@ float Graph_P<W>::_compute_overall_entropy(
   M_r_row.clear();
   M_r_row.resize(_num_blocks);
   
-  float data_S2 = 0;
+  float data_S = 0;
   for (size_t i = 0; i < _num_blocks; i++) {
     std::fill(M_r_row.begin(), M_r_row.end(), 0);
     for (const auto& [v, w] : _Mrow[i]) {
@@ -1189,7 +1192,7 @@ float Graph_P<W>::_compute_overall_entropy(
     }
     for (size_t v = 0; v < _num_blocks; v++) {
       if (M_r_row[v] != 0) {
-        data_S2 -= M_r_row[v] * std::log(M_r_row[v] / (float)(_block_degrees_out[i] * _block_degrees_in[v]));
+        data_S -= M_r_row[v] * std::log(M_r_row[v] / (float)(_block_degrees_out[i] * _block_degrees_in[v]));
       }
     }
   }
@@ -1199,7 +1202,7 @@ float Graph_P<W>::_compute_overall_entropy(
   float model_S = (float)(_E * (1 + model_S_term) * log(1 + model_S_term)) - 
                           (model_S_term * log(model_S_term)) + (_N * log(_num_blocks));
 
-  return model_S + data_S2;
+  return model_S + data_S;
 } // end of compute_overall_entropy
 
 
@@ -1256,24 +1259,17 @@ void Graph_P<W>::_update_partition(
   const std::vector<W>& d_new
   )
 {
-  ////////////////////////////////////////////
-  //check before update
   _partitions[ni] = s;
-  // TODO: why can I just clear the row and col and only update the non zero
-  // term?
-  //
-
-  // from the differet perspective
   _Mrow[r].clear();
   _Mrow[s].clear();
   _Mcol[r].clear();
   _Mcol[s].clear();
   for (size_t i = 0; i < _num_blocks; i++) {
     if (M_r_row[i] != 0) {
-      _Mrow[r].emplace_back(std::make_pair(i, M_r_row[i]));
+      _Mrow[r].emplace_back(i, M_r_row[i]);
     }
     if (M_s_row[i] != 0) {
-      _Mrow[s].emplace_back(std::make_pair(i, M_s_row[i]));
+      _Mrow[s].emplace_back(i, M_s_row[i]);
     }
     if (i != r && i != s) { 
        _Mrow[i].erase(
@@ -1284,20 +1280,20 @@ void Graph_P<W>::_update_partition(
       ); 
   
       if (M_r_col[i] != 0) {
-        _Mrow[i].emplace_back(std::make_pair(r, M_r_col[i]));
+        _Mrow[i].emplace_back(r, M_r_col[i]);
       }
       if (M_s_col[i] != 0) {
-        _Mrow[i].emplace_back(std::make_pair(s, M_s_col[i]));
+        _Mrow[i].emplace_back(s, M_s_col[i]);
       }  
     }
   } 
 
   for (size_t i = 0; i < _num_blocks; i++) {
     if (M_r_col[i] != 0) {
-      _Mcol[r].emplace_back(std::make_pair(i, M_r_col[i]));
+      _Mcol[r].emplace_back(i, M_r_col[i]);
     }
     if (M_s_col[i] != 0) {
-      _Mcol[s].emplace_back(std::make_pair(i, M_s_col[i]));
+      _Mcol[s].emplace_back(i, M_s_col[i]);
     }
     if (i != r && i != s) {
       _Mcol[i].erase(
@@ -1307,10 +1303,10 @@ void Graph_P<W>::_update_partition(
         _Mcol[i].end()
       );
       if (M_r_row[i] != 0) {
-        _Mcol[i].emplace_back(std::make_pair(r, M_r_row[i]));
+        _Mcol[i].emplace_back(r, M_r_row[i]);
       }
       if (M_s_row[i] != 0) {
-        _Mcol[i].emplace_back(std::make_pair(s, M_s_row[i]));
+        _Mcol[i].emplace_back(s, M_s_row[i]);
       }     
     }
   
