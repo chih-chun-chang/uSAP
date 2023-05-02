@@ -34,6 +34,8 @@
 tags
 build/
 
+python/__pycache__/
+
 Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_1000000_nodes_truePartition.tsv
 Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_1000000_nodes.tsv
 Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_20000000_nodes_truePartition.tsv
