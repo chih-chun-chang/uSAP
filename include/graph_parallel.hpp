@@ -334,7 +334,7 @@ void Graph_P<W>::load_graph_from_tsv(const std::string& FileName) {
 template <typename W>
 std::vector<size_t> Graph_P<W>::partition() {
   
-_initialize_edge_counts();  _num_blocks = _N;
+  _num_blocks = _N;
   
   _partitions.resize(_num_blocks);
   std::iota(_partitions.begin(), _partitions.end(), 0); 
@@ -404,6 +404,7 @@ _initialize_edge_counts();  _num_blocks = _N;
     size_t start_block = 0;
     size_t step = 1;
     _taskflow.clear();
+    // TODO: do you really need std::ref???
     _taskflow.for_each_index(std::ref(start_block), std::ref(_num_blocks), step,
       [this,
       &block_partition,
@@ -1162,7 +1163,17 @@ float Graph_P<W>::_compute_delta_entropy(
   )
 {
   
+  // TODO: log, multiplication, division, are VERY expensive...
+  // IADD / ISUB (integer point add and subtract) typically take 1 cycle
+  // FADD / FSUB (floating point add and subtract) both take 3 cycles
+  // FMUL (multiply) takes 5 cycles
+  // FDIV (divide) takes 10-24 cycles
+  // FYL2X (𝑦⋅log2(𝑥)) takes 90-106 cycles
+  // F2XM1 (2𝑥−1) takes about 68 cycles
+  // 
+  // maybe a mixed strategy ... (if # iterations >= 10000, do parallel reduction)
   float delta_entropy = 0;
+
   for (size_t i = 0; i < _num_blocks; i++) {
     if (M_r_row[i] != 0) {
       delta_entropy -= M_r_row[i] * std::log(static_cast<float>
