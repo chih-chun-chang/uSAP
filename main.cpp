@@ -28,12 +28,24 @@ int main (int argc, char *argv[]) {
     case 50000:
       FileName += "_50000_nodes";
       break;
+    case 200000:
+      FileName += "_200000_nodes";
+      break;
+    case 1000000:
+      FileName += "_1000000_nodes";
+      break;
+    case 5000000:
+      FileName += "_5000000_nodes";
+      break;
+    case 20000000:
+      FileName += "_20000000_nodes";
+      break;
     default:
       std::cerr << "usage: ./run [Number of Nodes=1000/5000/20000/50000]\n";
       std::exit(1);
   }
 
-  sgp::Graph<int> g(FileName);
+  sgp::Graph<long> g(FileName);
 
   std::cout << "Number of nodes: " << g.num_nodes() << std::endl;
   std::cout << "Number of edges: " << g.num_edges() << std::endl;
@@ -51,7 +63,7 @@ int main (int argc, char *argv[]) {
   bf::evaluate<size_t>(g.truePartitions, blocks);
 
   // parallel
-  sgp::Graph_P<int> g_p(FileName);
+  sgp::Graph_P<long> g_p(FileName);
   std::cout << "Number of nodes: " << g_p.num_nodes() << std::endl;
   std::cout << "Number of edges: " << g_p.num_edges() << std::endl;
   g_p.verbose = false;
