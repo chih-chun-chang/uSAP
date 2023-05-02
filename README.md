@@ -13,6 +13,15 @@ make
 ./run [N (1000 / 5000 / 20000 / 50000)]
 ```
 
+## Algorithm
+### Parallel Block Merge
+![](docs/26.jpeg)
+### Iterative Nodal Update
+![](docs/27.jpeg)
+### Parallel Nodal Update
+![](docs/28.jpeg)
+![](docs/29.jpeg)
+
 ## Result
 
 ### Static Graph Statistics
