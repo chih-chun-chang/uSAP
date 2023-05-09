@@ -7,7 +7,7 @@ import os, sys, argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--parts", type=int, required=False)
 parser.add_argument("-input_filename", nargs="?", type=str,
-        default="../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_50000_nodes")
+        default="../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar_200000_nodes")
 #parser.add_argument("-input_filename", nargs="?", type=str,
 #        default="./static/lowOverlap_lowBlockSizeVar/test")
 

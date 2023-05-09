@@ -40,14 +40,15 @@ class Graph_P {
     float delta_entropy_threshold1 = 5e-4;
     float delta_entropy_threshold2 = 1e-4;
     size_t delta_entropy_moving_avg_window = 3;
-    bool verbose = true;
+    bool verbose = false;
 
     // function used by users
     void load_graph_from_tsv(const std::string& FileName);
     std::vector<size_t> partition();    
     const size_t& num_nodes() const { return _N; }
     const size_t& num_edges() const { return _E; }
-    
+    const std::vector<size_t>& get_partitions() const { return _partitions; }
+
     // constructor
     Graph_P(const std::string& FileName, 
       size_t num_threads = std::thread::hardware_concurrency()) :
@@ -111,9 +112,6 @@ class Graph_P {
       std::vector<size_t> partitions_large;
       std::vector<size_t> partitions_med;
       std::vector<size_t> partitions_small;
-      std::vector<W> M_large;
-      std::vector<W> M_med;
-      std::vector<W> M_small;
       std::vector< std::vector<std::pair<size_t, W>> > Mrow_large;
       std::vector< std::vector<std::pair<size_t, W>> > Mrow_med;
       std::vector< std::vector<std::pair<size_t, W>> > Mrow_small;
