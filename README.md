@@ -70,3 +70,5 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 - [ ] Streaming Graph Input
 - [ ] Node Selection
 <img src="docs/node_selection.jpg" width="700">
+- [ ] Possibility of Gibbs Sampling
+- [ ] Subgraph and Merge
