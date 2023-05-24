@@ -177,13 +177,11 @@ class Graph_P {
     std::vector< float >                             _pt_delta_entropy_itr;
     std::vector< std::vector<std::pair<size_t, W>> > _pt_partitions_update;
     
-
     // main thread
     OldData _old;  
     Partition _P;
     MergeData _merge_data;
     
-
     // functions used internally
     void _initialize_edge_counts();
  
