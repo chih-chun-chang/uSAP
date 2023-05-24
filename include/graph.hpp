@@ -31,9 +31,9 @@ class Graph {
     // parameters can be set by users
     int beta = 3;
     size_t num_agg_proposals_per_block = 10; 
-    float num_block_reduction_rate = 0.5;
+    float num_block_reduction_rate = 0.3; // 0.5
     size_t max_num_nodal_itr = 100;
-    float delta_entropy_threshold1 = 5e-4;
+    float delta_entropy_threshold1 = 3e-4; //5
     float delta_entropy_threshold2 = 1e-4;
     size_t delta_entropy_moving_avg_window = 3;
     bool verbose = true;

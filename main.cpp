@@ -67,6 +67,8 @@ int main (int argc, char *argv[]) {
   std::cout << "Number of nodes: " << g_p.num_nodes() << std::endl;
   std::cout << "Number of edges: " << g_p.num_edges() << std::endl;
 
+  //g_p.verbose = true;
+
   std::cout << "Partitioning..." << std::endl;
   auto start1 = std::chrono::steady_clock::now();
   g_p.partition();
