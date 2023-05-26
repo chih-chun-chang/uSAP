@@ -39,10 +39,10 @@ class Graph_P {
     int     beta                            = 3;
     size_t  block_size                      = 1024;
     size_t  num_agg_proposals_per_block     = 10; 
-    float   num_block_reduction_rate        = 0.5;
+    float   num_block_reduction_rate        = 0.3;//0.5;
     size_t  max_num_nodal_itr               = 100;
     size_t  num_batch_nodal_update          = 5;
-    float   delta_entropy_threshold1        = 5e-4;
+    float   delta_entropy_threshold1        = 3e-4;//5e-4;
     float   delta_entropy_threshold2        = 1e-4;
     size_t  delta_entropy_moving_avg_window = 3;
     bool    verbose                         = false;
@@ -165,6 +165,8 @@ class Graph_P {
     std::vector<Edge> _edges;
     std::vector<std::vector<std::pair<size_t, W>>> _out_neighbors;
     std::vector<std::vector<std::pair<size_t, W>>> _in_neighbors;
+    std::vector<std::vector<size_t>> _neighbors;
+    std::vector<std::vector<size_t>> _independent_sets;
 
     // taskflow
     tf::Executor _executor;
@@ -183,6 +185,8 @@ class Graph_P {
     MergeData _merge_data;
     
     // functions used internally
+    void _find_independent_sets();
+    
     void _initialize_edge_counts();
  
     void _propose_new_partition_block(
@@ -253,9 +257,12 @@ void Graph_P<W>::load_graph_from_tsv(const std::string& FileName) {
   
   _out_neighbors.resize(_N);
   _in_neighbors.resize(_N);
+  _neighbors.resize(_N);
   for (const auto& e : _edges) {
     _out_neighbors[e.from-1].emplace_back(e.to-1, e.weight);
     _in_neighbors[e.to-1].emplace_back(e.from-1, e.weight);
+    _neighbors[e.from-1].emplace_back(e.to-1);
+    _neighbors[e.to-1].emplace_back(e.from-1);
   }
 
   // load the true partition
@@ -279,7 +286,9 @@ void Graph_P<W>::load_graph_from_tsv(const std::string& FileName) {
 
 template <typename W>
 void Graph_P<W>::partition() {
- 
+
+  //_find_independent_sets();
+
   std::vector<W> M_r_row; // compute S
   std::vector<float> itr_delta_entropy;
  
@@ -287,6 +296,27 @@ void Graph_P<W>::partition() {
   _P.B_to_merge = (size_t)_P.B * num_block_reduction_rate;
   _P.partitions.resize(_P.B);
   std::iota(_P.partitions.begin(), _P.partitions.end(), 0);
+
+
+  //_P.partitions.resize(_N, -1);
+  //for (size_t i = 0; i < _independent_sets.size(); i++) {
+  //  for (size_t k = 0; k < 1; k++) {
+  //    size_t start_node = _independent_sets[i][k];
+  //    for (const auto& out : _out_neighbors[start_node]) {
+  //      _P.partitions[out.first] = i;
+  //      _P.B++;
+  //    }
+  //  }
+  //}
+  //_P.B = _independent_sets.size();
+  //for (auto& node : _P.partitions) {
+  //  if (node == -1) {
+  //    node = _P.B;
+  //    _P.B++;
+  //  }
+  //}
+  //_P.B_to_merge = (size_t)_P.B * num_block_reduction_rate;
+
 
   _initialize_edge_counts();
 
@@ -301,7 +331,7 @@ void Graph_P<W>::partition() {
     tf::Taskflow taskflow_block;
     taskflow_block.for_each_index(0, (int)_P.B, 1, [this] (int r) {
         
-        auto wid = _executor.this_worker_id();
+        auto wid        = _executor.this_worker_id();
         auto& prob      = _pt_probabilities[wid];
         auto& generator = _pt_generator[wid];
         auto& newM      = _pt_newM[wid];
@@ -345,13 +375,13 @@ void Graph_P<W>::partition() {
       for (size_t beg = 0; beg < _N; beg += batch_size) {
         size_t end = beg + batch_size;
         if (end > _N) end = _N;
+
         for (auto& p_u : _pt_partitions_update) {
           p_u.clear();
         }
         tf::Taskflow taskflow_nodal;
         taskflow_nodal.for_each_index((int)beg, (int)end, 1, [this](int ni){
-
-          auto wid = _executor.this_worker_id();
+          auto wid =                _executor.this_worker_id();
           auto& prob                = _pt_probabilities[wid];
           auto& neighbors           = _pt_neighbors[wid];
           auto& generator           = _pt_generator[wid];
@@ -394,6 +424,7 @@ void Graph_P<W>::partition() {
         );
         total_num_nodal_moves += num_nodal_moves;
 
+        // update the partitions based on each thread results
         for(const auto& p_u : _pt_partitions_update) {
           for (const auto& [v, b] : p_u) {
             _P.partitions[v] = b;
@@ -438,6 +469,76 @@ void Graph_P<W>::partition() {
     }
   } // end while
 }
+
+template <typename W>
+void Graph_P<W>::_find_independent_sets()
+{
+ 
+  int num_threads = std::thread::hardware_concurrency();
+  std::vector<std::vector<int>> _pt_local_set(num_threads);
+  std::vector<size_t> set;
+
+  bool E = false;
+
+  while (!E) {
+    set.clear();
+
+    tf::Taskflow taskflow;
+    auto find_min = taskflow.for_each_index(0, (int)_N, 1, [&](int i){
+      auto wid = _executor.this_worker_id();
+      auto& ps = _pt_local_set[wid];
+      if (_neighbors[i].size() > 0) {
+        if (_neighbors[i].size() == 1) {
+          if (i <= _neighbors[i][0]) {
+            ps.emplace_back(i);
+            _neighbors[i].clear();
+          }
+        }
+        else {
+          auto minItr = std::min_element(_neighbors[i].begin(), _neighbors[i].end(),
+          [](const size_t num1, const size_t num2) { return num1 < num2; });
+          if (i <= *minItr) {
+            ps.emplace_back(i);
+            _neighbors[i].clear();
+          }
+        }
+      }
+    }).name("find_min");
+    _executor.run(taskflow).wait();
+  
+    for (auto& ps : _pt_local_set) {
+      for (const auto& n : ps) {
+        set.emplace_back(n);
+      }
+      ps.clear();
+    }
+    _independent_sets.emplace_back(set);
+    
+    tf::Taskflow taskflow1;
+    auto reduce = taskflow1.for_each_index(0, (int)_N, 1, [&](int i){
+      for(auto it = _neighbors[i].begin(); it != _neighbors[i].end();) {
+        auto findItr = std::find(set.begin(), set.end(), *it);
+        if (findItr != set.end()) {
+          it = _neighbors[i].erase(it);
+          if (_neighbors[i].size() == 0) {
+            _neighbors[i].emplace_back(i);
+          }
+        }
+        else {
+          ++it;
+        }
+      }
+    }).name("reduce");
+    _executor.run(taskflow1).wait();
+
+    E = true;
+    for (int i = 0; i < _neighbors.size(); i++) {
+      E = E && (_neighbors[i].size() == 0);
+    }
+  
+  }
+}
+
 
 template <typename W>
 void Graph_P<W>::_initialize_edge_counts() 
@@ -693,7 +794,6 @@ void Graph_P<W>::_propose_new_partition_block(
     if (c != 0) {
       dS -= c * std::log((float)c/(d_in_new_s * d_out_new_s));
     }
-
     for (size_t i = 0; i < _P.B; i++) {
       if (i != r && i != s) {
         // row
@@ -723,7 +823,7 @@ void Graph_P<W>::_propose_new_partition_block(
             (newM.M_r_col[i]+newM.M_s_col[i])/(_P.d.out[i]*d_in_new_s));
         }
       }
-    }   
+    }
   }
 } // 
 
