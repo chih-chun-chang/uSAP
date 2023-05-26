@@ -62,6 +62,8 @@ To find the optimal proposal block with the smallest change in delta entropy for
 ### Static Graph Statistics
 The dataset is from [2022 Streaming Partition Challenge Datasets with Known Truth Partitions](http://graphchallenge.mit.edu/data-sets)
 
+<img src="docs/result.png" width="700">
+
 - Using different block size to determine to use matrix or list
 
 <img src="docs/block_size.jpg" width="700">
@@ -70,5 +72,7 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 - [ ] Streaming Graph Input
 - [ ] Node Selection
 <img src="docs/node_selection.jpg" width="700">
+
+
 - [ ] Possibility of Gibbs Sampling
 - [ ] Subgraph and Merge
