@@ -71,9 +71,21 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 ## Progress
 
 [Asynchronous Gibbs Sampling](https://arxiv.org/abs/1509.08999)
-<img src="docs/gibbs0.jpg" width="700">
-<img src="docs/gibbs1.jpg" width="700">
+
+<img src="docs/gibbs0.png" width="200">
+<img src="docs/gibbs1.png" width="200">
+
 1. Different batch size
+
+<img src="docs/batch_result.jpg" width="700">
+
+2. Avoid computing Hasting Correlation
+
+<img src="docs/removeH.jpg" width="700">
+
+3. Merge block based on IS order
+
+<img src="docs/is.jpg" width="700">
 
 ## TODO
 - [ ] Streaming Graph Input
