@@ -68,11 +68,15 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 
 <img src="docs/block_size.jpg" width="700">
 
+## Progress
+
+[Asynchronous Gibbs Sampling](https://arxiv.org/abs/1509.08999)
+<img src="docs/gibbs0.jpg" width="700">
+<img src="docs/gibbs1.jpg" width="700">
+1. Different batch size
+
 ## TODO
 - [ ] Streaming Graph Input
 - [ ] Node Selection
-<img src="docs/node_selection.jpg" width="700">
-
-
 - [ ] Possibility of Gibbs Sampling
 - [ ] Subgraph and Merge
