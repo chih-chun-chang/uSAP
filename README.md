@@ -25,11 +25,6 @@ To find the optimal proposal block with the smallest change in delta entropy for
 
 ---
 
-### Parallel Nodal Update
-- Accept or reject the nodal movement based on the same state, and then update the partition after this run
-
-<img src="docs/parallel_nodal.jpeg" width="700">
-
 ### Parallel Batch Nodal Update
 
 - Choose a batch of nodal to move
