@@ -14,6 +14,8 @@
 #include <set>
 #include <thread>
 #include <mutex>
+#include <stack>
+#include <chrono>
 #include <condition_variable>
 #include <taskflow/taskflow.hpp>
 #include <taskflow/algorithm/for_each.hpp>
@@ -39,13 +41,15 @@ class Graph_P {
     int     beta                            = 3;
     size_t  block_size                      = 1024;
     size_t  num_agg_proposals_per_block     = 10; 
-    float   num_block_reduction_rate        = 0.3;//0.5;
+    float   num_block_reduction_rate        = 0.5;//0.5
     size_t  max_num_nodal_itr               = 100;
-    size_t  num_batch_nodal_update          = 5;
-    float   delta_entropy_threshold1        = 3e-4;//5e-4;
+    size_t  num_batch_nodal_update          = 4;//4
+    float   delta_entropy_threshold1        = 5e-4;//5e-4
     float   delta_entropy_threshold2        = 1e-4;
     size_t  delta_entropy_moving_avg_window = 3;
     bool    verbose                         = false;
+    size_t  dfs_depth                       = 20;//20
+    size_t  t_block_num                     = 20;
 
     // function used by users
     void load_graph_from_tsv(const std::string& FileName);
@@ -55,8 +59,8 @@ class Graph_P {
     void partition();
 
     Graph_P(const std::string& FileName, 
-      size_t num_threads = std::thread::hardware_concurrency()) :
-      //size_t num_threads = 1) : 
+      //size_t num_threads = std::thread::hardware_concurrency()) :
+      size_t num_threads = 16) : 
       _executor(num_threads),
       _pt_probabilities(num_threads),
       _pt_neighbors(num_threads),
@@ -185,6 +189,23 @@ class Graph_P {
     MergeData _merge_data;
     
     // functions used internally
+    std::stack<int> _stack;
+    std::vector<bool> _visited;
+
+    void _scc();
+
+    void _dfs(int v);
+
+    void _dfs_itr();
+
+    void _dfs_p(
+      int i,
+      int v,
+      int b,
+      std::vector<bool>& visited,
+      std::vector< std::vector<size_t> > transpose
+    );
+    
     void _find_independent_sets();
     
     void _initialize_edge_counts();
@@ -207,7 +228,10 @@ class Graph_P {
       std::vector<size_t>& neighbors,
       std::vector<float>& prob,
       NewM& newM,
-      const std::default_random_engine& generator
+      const std::default_random_engine& generator,
+      int& num_nodal_move,
+      float& delta_entropy_itr,
+      std::vector<std::pair<size_t, W>>& partitions_update
     );
 
     void _carry_out_best_merges();
@@ -271,6 +295,7 @@ void Graph_P<W>::load_graph_from_tsv(const std::string& FileName) {
     std::cerr << "Unable to open file!\n";
     std::exit(EXIT_FAILURE);
   }
+  size_t b = 0;
   // format: node i \t block
   while (std::getline(true_file, line)) {
     size_t start = 0;
@@ -280,195 +305,330 @@ void Graph_P<W>::load_graph_from_tsv(const std::string& FileName) {
     tab_pos = line.find('\t', start);
     size_t block = std::stoi(line.substr(start, tab_pos - start));
     truePartitions.emplace_back(block-1);
+    if (block > b) b = block;
   }
   true_file.close();
+  
+  // print
+  std::cout << "Number of nodes: " << _N << std::endl;
+  std::cout << "Number of edges: " << _E << std::endl;
+  std::cout << "NUmber of blocks:" << b  << std::endl;
+
 } // end of load_graph_from_tsv
+
+
+
 
 template <typename W>
 void Graph_P<W>::partition() {
-
-  //_find_independent_sets();
-
+  
   std::vector<W> M_r_row; // compute S
   std::vector<float> itr_delta_entropy;
- 
-  _P.B = _N;
-  _P.B_to_merge = (size_t)_P.B * num_block_reduction_rate;
-  _P.partitions.resize(_P.B);
-  std::iota(_P.partitions.begin(), _P.partitions.end(), 0);
 
+  size_t nodal_batch_size = _N / num_batch_nodal_update;
+  size_t itr, beg;
 
-  //_P.partitions.resize(_N, -1);
-  //for (size_t i = 0; i < _independent_sets.size(); i++) {
-  //  for (size_t k = 0; k < 1; k++) {
-  //    size_t start_node = _independent_sets[i][k];
-  //    for (const auto& out : _out_neighbors[start_node]) {
-  //      _P.partitions[out.first] = i;
-  //      _P.B++;
-  //    }
-  //  }
-  //}
-  //_P.B = _independent_sets.size();
-  //for (auto& node : _P.partitions) {
-  //  if (node == -1) {
-  //    node = _P.B;
-  //    _P.B++;
-  //  }
-  //}
-  //_P.B_to_merge = (size_t)_P.B * num_block_reduction_rate;
+  float S, mean;
+  bool isf;
+  int start, end;
+  int PB;
 
+  tf::Taskflow taskflow("Partition");
 
-  _initialize_edge_counts();
-
-  bool optimal_B_found = false;
-  while (!optimal_B_found) {
-    if (verbose)  
-      printf("\nMerging down blocks from %ld to %ld\n", _P.B, _P.B - _P.B_to_merge);
-
-    _merge_data.reset(_P.B);
-
-    // block merge
-    tf::Taskflow taskflow_block;
-    taskflow_block.for_each_index(0, (int)_P.B, 1, [this] (int r) {
-        
-        auto wid        = _executor.this_worker_id();
-        auto& prob      = _pt_probabilities[wid];
-        auto& generator = _pt_generator[wid];
-        auto& newM      = _pt_newM[wid];
-
-        for (size_t idx = 0; idx < num_agg_proposals_per_block; idx++) {
-
-          size_t s;
-          float dS = 0;
-          
-          _propose_new_partition_block(
-            r, s, dS,
-            prob,
-            newM,
-            generator
-          );
-          
-          if (dS < _merge_data.dS_for_each_block[r]) {
-            _merge_data.best_merge_for_each_block[r] = s;
-            _merge_data.dS_for_each_block[r] = dS;
-          }     
-        } // end for proposal_idx
-    }).name("block merge"); // taskflow
-    _executor.run(taskflow_block).wait();
-
-    _carry_out_best_merges();
-
+  tf::Task init_merge = taskflow.emplace([this](){
+    _scc();  
+    _P.B_to_merge = (size_t)_P.B * num_block_reduction_rate;
     _initialize_edge_counts();
+  }).name("init_merge");
 
-    int total_num_nodal_moves = 0;
+  tf::Task prepare_merge = taskflow.emplace([this, &PB](){
+    _merge_data.reset(_P.B);
+    PB = _P.B;
+  }).name("prepare_merge");
+
+  tf::Task block_merge = taskflow.for_each_index(0, std::ref(PB), 1, [this] (int r) {
+    auto wid        = _executor.this_worker_id();
+    auto& prob      = _pt_probabilities[wid];
+    auto& generator = _pt_generator[wid];
+    auto& newM      = _pt_newM[wid];
+    for (size_t idx = 0; idx < num_agg_proposals_per_block; idx++) {
+      size_t s;
+      float dS = 0;   
+      _propose_new_partition_block(
+        r, s, dS,
+        prob,
+        newM,
+        generator
+      );    
+      if (dS < _merge_data.dS_for_each_block[r]) {
+        _merge_data.best_merge_for_each_block[r] = s;
+        _merge_data.dS_for_each_block[r] = dS;
+      }     
+    } // end for proposal_idx
+  }).name("block_merge");
+
+  tf::Task perform_merge = taskflow.emplace([this](){
+    _carry_out_best_merges();
+  }).name("perform_merge");
+
+  tf::Task prepare_move = taskflow.emplace([this, &itr_delta_entropy, &itr](){
+    _initialize_edge_counts();
     itr_delta_entropy.clear();
     itr_delta_entropy.resize(max_num_nodal_itr, 0.0);
+    itr = 0;
+  }).name("prepare_move");
 
-    // nodal updates
-    for (size_t itr = 0; itr < max_num_nodal_itr; itr++) {
-
-      int num_nodal_moves = 0;
-      std::fill(_pt_num_nodal_move_itr.begin(), _pt_num_nodal_move_itr.end(), 0);
-      std::fill(_pt_delta_entropy_itr.begin(), _pt_delta_entropy_itr.end(), 0);
-
-      size_t batch_size = _N / num_batch_nodal_update;
-      for (size_t beg = 0; beg < _N; beg += batch_size) {
-        size_t end = beg + batch_size;
-        if (end > _N) end = _N;
-
-        for (auto& p_u : _pt_partitions_update) {
-          p_u.clear();
-        }
-        tf::Taskflow taskflow_nodal;
-        taskflow_nodal.for_each_index((int)beg, (int)end, 1, [this](int ni){
-          auto wid =                _executor.this_worker_id();
-          auto& prob                = _pt_probabilities[wid];
-          auto& neighbors           = _pt_neighbors[wid];
-          auto& generator           = _pt_generator[wid];
-          auto& newM                = _pt_newM[wid];
-          auto& num_nodal_move      = _pt_num_nodal_move_itr[wid];
-          auto& delta_entropy_itr   = _pt_delta_entropy_itr[wid];
-          auto& partitions_update   = _pt_partitions_update[wid]; 
-
-          size_t r = _P.partitions[ni];
-          size_t s;          
-          float H = 1.0;
-          float dS = 0;
-
-          _propose_new_partition_nodal(
-            r, ni, s, dS, H,
-            neighbors,
-            prob,
-            newM,
-            generator
-          );
-
-          if (s != r) {
-            float p_accept = std::min(std::exp(-beta * dS) * H, 1.0f);
-            std::uniform_real_distribution<float> uni_dist(0.0, 1.0);
-            float rand_num = uni_dist(generator);
-            if ( rand_num <= p_accept) {
-              num_nodal_move++; 
-              delta_entropy_itr += dS;
-              partitions_update.emplace_back(ni, s);
-            }
-          } // end if 
-        }).name("nodal update"); // tf for each
-        _executor.run(taskflow_nodal).wait();
-
-        num_nodal_moves = std::reduce(_pt_num_nodal_move_itr.begin(), 
-          _pt_num_nodal_move_itr.end(), 0.0, [](int a, int b) { return a + b; }
-        );
-        itr_delta_entropy[itr] = std::reduce(_pt_delta_entropy_itr.begin(), 
-          _pt_delta_entropy_itr.end(), 0.0, [](float a, float b) { return a + b; }
-        );
-        total_num_nodal_moves += num_nodal_moves;
-
-        // update the partitions based on each thread results
-        for(const auto& p_u : _pt_partitions_update) {
-          for (const auto& [v, b] : p_u) {
-            _P.partitions[v] = b;
-          }
-        } 
-        _initialize_edge_counts();
-      } // num_batch_nodal_update
-  
-      float S = _compute_overall_entropy(M_r_row);
-      if (verbose)
-        printf("Itr: %ld, number of nodal moves: %d, delta S: %.5f, overall_entropy:%f \n", 
-                itr, num_nodal_moves, itr_delta_entropy[itr]/S, S);
-     
-      if (itr >= (delta_entropy_moving_avg_window - 1)) {
-        bool isf = std::isfinite(_old.large.S) && std::isfinite(_old.med.S) 
-          && std::isfinite(_old.small.S);
-        float mean = 0;
-        for (int i = itr - delta_entropy_moving_avg_window + 1; i < itr; i++) {
-          mean += itr_delta_entropy[i];
-        }   
-        mean /= (float)(delta_entropy_moving_avg_window - 1); 
-        if (!isf) {
-          if (-mean < (delta_entropy_threshold1 * S)) break;  
-        }   
-        else {
-          if (-mean < (delta_entropy_threshold2 * S)) break;
-        }   
-      } // end batch  
-    } // end itr
-
-    _P.S = _compute_overall_entropy(M_r_row);
-
-    if (verbose)
-      printf("Total number of nodal moves: %d, overall_entropy: %.5f\n", 
-              total_num_nodal_moves, _P.S);
-
-    optimal_B_found = _prepare_for_partition_next();
-
-    if (verbose) {
-      printf("Overall entropy: [%f, %f, %f]\n", _old.large.S, _old.med.S, _old.small.S);
-      printf("Number of blocks: [%ld, %ld, %ld]\n", _old.large.B, _old.med.B, _old.small.B);
+  tf::Task prepare_batch = taskflow.emplace([this, 
+    &S, &mean, &isf, &beg, &M_r_row, &itr, &itr_delta_entropy](){
+    S = _compute_overall_entropy(M_r_row);
+    mean = 0.f; 
+    isf = std::isfinite(_old.large.S) && std::isfinite(_old.med.S)
+      && std::isfinite(_old.small.S);
+    if (itr >= (delta_entropy_moving_avg_window - 1)) {
+      for (int i = itr - delta_entropy_moving_avg_window + 1; i < itr; i++) {
+        mean += itr_delta_entropy[i];
+      }    
+      mean /= (float)(delta_entropy_moving_avg_window - 1);   
     }
-  } // end while
+    std::fill(_pt_delta_entropy_itr.begin(), _pt_delta_entropy_itr.end(), 0); 
+    beg = 0;
+  }).name("prepare_batch");
+
+  tf::Task fetch_batch = taskflow.emplace([this, &beg, &nodal_batch_size, &start, &end](){
+    start = beg;
+    end = start + nodal_batch_size;
+    if (end > _N) end = _N;    
+    for (auto& p_u : _pt_partitions_update) {
+      p_u.clear();
+    }
+  }).name("fetch_batch");
+
+  tf::Task nodal_move = taskflow.for_each_index(std::ref(start), std::ref(end), 1, [this](int ni){
+    auto wid =                _executor.this_worker_id();
+    auto& prob                = _pt_probabilities[wid];
+    auto& neighbors           = _pt_neighbors[wid];
+    auto& generator           = _pt_generator[wid];
+    auto& newM                = _pt_newM[wid];
+    auto& num_nodal_move      = _pt_num_nodal_move_itr[wid];
+    auto& delta_entropy_itr   = _pt_delta_entropy_itr[wid];
+    auto& partitions_update   = _pt_partitions_update[wid]; 
+
+    size_t r = _P.partitions[ni];
+    size_t s;          
+    float H = 1.0;
+    float dS = 0;
+
+    _propose_new_partition_nodal(
+      r, ni, s, dS, H,
+      neighbors,
+      prob,
+      newM,
+      generator,
+      num_nodal_move,
+      delta_entropy_itr,
+      partitions_update
+    );
+  }).name("nodal update");
+
+  tf::Task update = taskflow.emplace([this, &itr_delta_entropy, &S, &itr, &mean, &isf](){
+    float dS_sum = std::reduce(_pt_delta_entropy_itr.begin(), 
+      _pt_delta_entropy_itr.end(), 0.0, [](float a, float b) { return a + b; }
+    );
+    itr_delta_entropy[itr] = dS_sum;  
+    for(const auto& p_u : _pt_partitions_update) {
+      for (const auto& [v, b] : p_u) {
+        _P.partitions[v] = b;
+      }
+    } 
+    _initialize_edge_counts();   
+    S += dS_sum;
+    if (itr >= (delta_entropy_moving_avg_window - 1)) {
+      if (!isf) {
+        if (-mean < (delta_entropy_threshold1 * S)) {
+          return 0;
+        }
+      }
+      else {
+        if (-mean < (delta_entropy_threshold2 * S)) {
+          return 0;
+        }
+      }
+    }
+    return 1;
+  }).name("update");
+
+  tf::Task check_batch = taskflow.emplace([this, &beg, &nodal_batch_size](){
+    beg += nodal_batch_size;
+    if (beg < _N) {
+      return 1;
+    }
+    else {
+      return 0;
+    }
+  }).name("check_next");
+
+  tf::Task check_itr = taskflow.emplace([this, &itr](){
+    itr += 1;
+    if (itr < max_num_nodal_itr) {
+      return 1;
+    }
+    else {
+      return 0;
+    }
+  }).name("check_itr");
+
+  tf::Task prepare_for_next = taskflow.emplace([this, &M_r_row](){
+    _P.S = _compute_overall_entropy(M_r_row);
+    //printf("overall_entropy: %.5f\n", _P.S);
+    bool optimal_B_found = _prepare_for_partition_next();
+    //printf("Overall entropy: [%f, %f, %f]\n", _old.large.S, _old.med.S, _old.small.S);
+    //printf("Number of blocks: [%ld, %ld, %ld]\n", _old.large.B, _old.med.B, _old.small.B);
+    if (!optimal_B_found) {
+      return 1;
+    }
+    else {
+      return 0;
+    }
+  }).name("prepare_for_next");
+
+  tf::Task finish = taskflow.emplace([](){}).name("finish");
+
+  init_merge.precede(prepare_merge);
+  prepare_merge.precede(block_merge);
+  block_merge.precede(perform_merge);
+  perform_merge.precede(prepare_move);
+  prepare_move.precede(prepare_batch);
+  prepare_batch.precede(fetch_batch);
+  fetch_batch.precede(nodal_move);
+  nodal_move.precede(update);
+  update.precede(prepare_for_next, check_batch);
+  check_batch.precede(check_itr, fetch_batch);
+  check_itr.precede(prepare_for_next, prepare_batch);
+  prepare_for_next.precede(finish, prepare_merge);
+
+  //taskflow.dump(std::cout);  
+  _executor.run(taskflow).wait();
+
 }
+
+template <typename W>
+void Graph_P<W>::_scc(){
+  _dfs_itr();
+
+  std::vector< std::vector<size_t> > out_transpose(_N);
+  for (size_t i = 0; i < _N; i++) {
+    for (const auto& [v, w] : _out_neighbors[i]) {
+      out_transpose[v].emplace_back(i);
+    }    
+  }
+  
+  _visited.clear();
+  _visited.resize(_N, false);
+  int b = 0; 
+  _P.B = 0; 
+  _P.partitions.resize(_N, -1); 
+  while (!_stack.empty()) {
+    int v = _stack.top();
+    _stack.pop();
+    if (!_visited[v]) {
+      int i = 0; 
+      std::stack<int> stack2;
+      stack2.push(v);
+      while (!stack2.empty() && i < dfs_depth) { // DFS depth threshold (decide B)
+        int ni = stack2.top();
+        stack2.pop();
+        if (!_visited[ni]) {
+          _visited[ni] = true;
+          _P.partitions[ni] = b; 
+          i++; 
+          for (const auto& n : out_transpose[ni]) {
+            if (!_visited[n]) {
+              stack2.push(n);
+            }    
+          }    
+        }    
+      }    
+      b++; 
+      _P.B++;
+    }    
+  }
+
+}
+
+template <typename W>
+void Graph_P<W>::_dfs(
+  int v
+) {
+
+  _visited[v] = true;
+  for (const auto& [n, w] : _out_neighbors[v]) {
+    if (!_visited[n]) {
+      _dfs(n);
+    }
+  }
+  _stack.push(v);
+  
+}
+
+template <typename W>
+void Graph_P<W>::_dfs_itr() {
+  
+  std::vector<int> color(_N);
+  std::stack<int> st;
+  for (size_t v = 0; v < _N; v++) {
+    if (color[v] == 0) {
+      st.push(v); // visit this node
+      while (!st.empty()) {
+        int v = st.top();
+        if (color[v] != 0) { // already seen
+          st.pop();
+          if (color[v] == 1) { //gray node
+            _stack.push(v);
+            color[v] = 2; // black, done!
+          }
+        }
+        else {
+          color[v] = 1; // gray, discover it
+          for (const auto& [n, w] : _out_neighbors[v]) {
+            if (color[n] == 0) {
+              st.push(n);
+            }
+          }
+        }
+      }
+    }
+  }
+
+
+}
+
+
+template <typename W>
+void Graph_P<W>::_dfs_p(
+  int i,
+  int v,
+  int b,
+  std::vector<bool>& visited,
+  std::vector< std::vector<size_t> > transpose
+) {
+ 
+  if (i < 3) { 
+
+  i++;  
+  visited[v] = true;
+  _P.partitions[v] = b;
+  for (const auto& n : transpose[v]) {
+    if (!visited[n]) {
+      _dfs_p(i, n, b, visited, transpose);
+    }
+  }
+
+  }
+}
+
+
+
+
 
 template <typename W>
 void Graph_P<W>::_find_independent_sets()
@@ -837,7 +997,10 @@ void Graph_P<W>::_propose_new_partition_nodal(
   std::vector<size_t>& neighbors,
   std::vector<float>& prob,
   NewM& newM,
-  const std::default_random_engine& generator
+  const std::default_random_engine& generator,
+  int& num_nodal_move,
+  float& delta_entropy_itr,
+  std::vector<std::pair<size_t, W>>& partitions_update
 ) {
 
   neighbors.clear();
@@ -951,13 +1114,13 @@ void Graph_P<W>::_propose_new_partition_nodal(
       }
     }
     
-    float p_forward = 0;
-    float p_backward = 0;
+    //float p_forward = 0;
+    //float p_backward = 0;
     size_t b;
     for (const auto& [v, w] : _out_neighbors[ni]) {
       b = _P.partitions[v];
-      p_forward += (float)(w * (newM.M_s_row[b] + newM.M_s_col[b] + 1))
-        /(_P.d.a[b] + _P.B);
+      //p_forward += (float)(w * (newM.M_s_row[b] + newM.M_s_col[b] + 1))
+      //  /(_P.d.a[b] + _P.B);
       if (v == ni) {
         newM.M_s_row[r] -= w;
         newM.M_s_row[s] += w;
@@ -967,8 +1130,8 @@ void Graph_P<W>::_propose_new_partition_nodal(
     }
     for (const auto& [v, w] : _in_neighbors[ni]) {
       b = _P.partitions[v];
-      p_forward += (float)(w * (newM.M_s_row[b] + newM.M_s_col[b] + 1))
-        /(_P.d.a[b] + _P.B);
+      //p_forward += (float)(w * (newM.M_s_row[b] + newM.M_s_col[b] + 1))
+      //  /(_P.d.a[b] + _P.B);
       if (b == r) {
         newM.M_r_row[r] -= w;
         newM.M_r_row[s] += w;
@@ -980,6 +1143,7 @@ void Graph_P<W>::_propose_new_partition_nodal(
       newM.M_r_col[b] -= w;
       newM.M_s_col[b] += w;
     }
+    /*
     for (const auto& [v, w] : _out_neighbors[ni]) {
       b = _P.partitions[v];
       if (b == r) {
@@ -1011,7 +1175,8 @@ void Graph_P<W>::_propose_new_partition_nodal(
       }
     }
     H = p_backward / p_forward;
-    
+    */
+
     if (newM.M_r_row[r] != 0) {
       dS -= newM.M_r_row[r] * std::log((float)newM.M_r_row[r]
         /(d_in_new_r*d_out_new_r)); 
@@ -1048,7 +1213,12 @@ void Graph_P<W>::_propose_new_partition_nodal(
         }
       }
     }
-  }
+    if (dS < 0) {
+      num_nodal_move++;
+      delta_entropy_itr += dS;
+      partitions_update.emplace_back(ni, s);
+    }
+  } // r != s
 }
 
 
