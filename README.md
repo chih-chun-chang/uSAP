@@ -14,7 +14,6 @@ make
 ```
 
 ## Algorithm
-<img src="docs/algo.png" width="500">
 
 ---
 
@@ -35,7 +34,7 @@ To find the optimal proposal block with the smallest change in delta entropy for
 
 ### Taskflow
 
-<img src="docs/parallel.jpeg" width="500">
+<img src="docs/taskgraph.jpg" width="500">
 
 ---
 
