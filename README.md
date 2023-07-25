@@ -1,4 +1,4 @@
-# graph_partition
+# uSAP: An Ultra-Fast Stochastic Graph Partitioner
 Streaming graph partition written in c++
 
 ## Compile
@@ -10,7 +10,7 @@ make
 
 ## Run
 ```
-./run [N (1000 / 5000 / 20000 / 50000)]
+./run [N (1000 / 5000 / 20000 / 50000)] [ (1 / 2 / 3 / 4) ]
 ```
 
 ## Algorithm
