@@ -67,69 +67,6 @@ Graph<Node, Weight> load_graph_from_tsv(const std::string& FileName) {
   return g;
 }// end of load_graph_from_tsv
 
-// --------------------- sequential code -----------------//
-
-void matrix_transpose_seq(int* odata, int* idata, unsigned width) {
-
-  for (unsigned i = 0; i < width; i++) {
-    for (unsigned j = 0; j < width; j++) {
-      odata[i + j*width] = idata[i*width + j];
-    }
-  }
-}
-
-void matrix_addition_seq(int* odata, int* idata1, int* idata2, unsigned width) {
-
-  for (unsigned i = 0; i < width; i++) {
-    for (unsigned j = 0; j < width; j++) {
-      odata[i + j*width] = idata1[i + j*width] + idata2[i + j*width];
-    }
-  }
-}
-
-void matrix_row_reduce_seq(int* odata, int* idata, unsigned width) {
-
-  for (unsigned i = 0; i < width; i++) {
-    odata[i] = 0;
-    for (unsigned j = 0; j < width; j++) {
-      odata[i] += idata[i*width + j];
-    }
-  }
-
-}
-
-void matrix_row_divide_seq(float* odata, int* idata1, int* idata2, unsigned width) {
-
-  for (unsigned i = 0; i < width; i++) {
-	for (unsigned j = 0; j < width; j++) {
-	  odata[i*width + j] = (float)idata1[i*width + j]/idata2[i];
-	}
-  }
-
-}
-
-template <typename T>
-void check(T* odata, T* idata, unsigned width) {
-  for (unsigned i = 0; i < width; i++) { 
-    for (unsigned j = 0; j < width; j++) {
-      if (odata[i*width + j] != idata[i*width + j]) {
-        std::cout << odata[i*width + j] << ", " << idata[i*width + j] << "\n";
-        std::cout << i << ", " << j << "\n";
-		assert(odata[i*width + j] == idata[i*width + j]);
-      }
-    }
-  }
-} 
-
-void check1d(int* odata, int* idata, unsigned width) {
-  for (unsigned i = 0; i < width; i++) {
-    if (odata[i] != idata[i]) {
-      std::cout << odata[i] << ", " << idata[i] << "\n";
-      std::cout << i << "\n";
-	  assert(odata[i] == idata[i]);
-    }
-  }
-}
 
 // ----------------------CUDA kernel ---------------------//
 
@@ -196,7 +133,7 @@ __global__ void vector_addition(int* odata, int* idata1, int* idata2, unsigned w
 __global__ void matrix_row_reduce(int* odata, int* idata, unsigned width) {
 
   // thread blocks of dimension 32x8
-  // each block copiesa tile of dimension 32x32
+  // each block copies a tile of dimension 32x32
   // each thread responsible for 32/8 data
 
   __shared__ int tile[TILE_DIM][TILE_DIM+1];
@@ -250,6 +187,7 @@ __global__ void matrix_row_divide(float* odata, int* idata1, int* idata2, unsign
 
 }
 
+// multinomial distribution for eack block's neighbor
 __global__ void matrix_discrete_distribution(int* odata, float* P, float* rand, unsigned width) {
 
   unsigned row = threadIdx.y + blockIdx.y * blockDim.y;
@@ -336,6 +274,7 @@ void propose_block_merge(
   Weight* din;  // degree in for each block (B*1)
   Weight* d;
   float* P; // probability matrix (B*B)
+  float* x;
 
   Node* S; // proposal for each block (B*1)
   unsigned* n; // random index (B*1)
@@ -343,22 +282,20 @@ void propose_block_merge(
   Node* u; 
 
   // TODO: malloc only once
-  //11.2
-  //cudaMallocAsync(&dout, sizeof(int)*B, stream);
-  //cudaMemcpyAsync(gpu_in, M.data(), sizeof(int)*width*width, cudaMemcpyDefault, stream);
-  cudaMalloc(&gpu_M, sizeof(Weight)*B*B);
-  cudaMalloc(&gpu_Mt, sizeof(Weight)*B*B);
-  cudaMalloc(&dout, sizeof(Weight)*B);
-  cudaMalloc(&din, sizeof(Weight)*B);
-  cudaMalloc(&d, sizeof(Weight)*B);
-  cudaMalloc(&P, sizeof(float)*B*B);
-  cudaMalloc(&S, sizeof(Node)*B);
-  cudaMalloc(&n, sizeof(unsigned)*B);
-  cudaMalloc(&dG, sizeof(Node)*B);
-  cudaMalloc(&u, sizeof(Node)*B);
+  cudaMallocAsync(&gpu_M, sizeof(Weight)*B*B, stream);
+  cudaMallocAsync(&gpu_Mt, sizeof(Weight)*B*B, stream);
+  cudaMallocAsync(&dout, sizeof(Weight)*B, stream);
+  cudaMallocAsync(&din, sizeof(Weight)*B, stream);
+  cudaMallocAsync(&d, sizeof(Weight)*B, stream);
+  cudaMallocAsync(&P, sizeof(float)*B*B, stream);
+  cudaMallocAsync(&S, sizeof(Node)*B, stream);
+  cudaMallocAsync(&n, sizeof(unsigned)*B, stream);
+  cudaMallocAsync(&dG, sizeof(Node)*B, stream);
+  cudaMallocAsync(&u, sizeof(Node)*B, stream);
+  cudaMallocAsync(&x, sizeof(float)*B, stream);
 
-  cudaMemcpy(gpu_M, M, sizeof(Weight)*B*B, cudaMemcpyDefault);
-  cudaMemcpy(dG, G, sizeof(Node)*B, cudaMemcpyDefault);
+  cudaMemcpyAsync(gpu_M, M, sizeof(Weight)*B*B, cudaMemcpyDefault, stream);
+  cudaMemcpyAsync(dG, G, sizeof(Node)*B, cudaMemcpyDefault, stream);
 
   dim3 dimGrid(B/TILE_DIM, B/TILE_DIM, 1);
   dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
@@ -398,22 +335,33 @@ void propose_block_merge(
   );
 
   // if d[i] != 0 -> ...
-  // 1.   sample an index n based on P
-  // 2.   u = G[n]
-  // 3.   x ~ U(0,1)
-  // 4.   prob = B/(u+B)
-  // 5.   x <= prob[u] -> S[i] = rand(B)
-  // 6.   x > prob[u] ->
-  //        rowsum(prob) == prob[i] -> S[i] = rand(B)
-  //        prob / rowsum(prob) -> S[i] = sample
+  // 1. multinomial based on P
   matrix_discrete_distribution<<<1, B, 0, stream>>>(
     // TODO:...
   ); 
   
+  // 2. u = G[n]
+  vector_map<<<1, B, 0, stream>>>(
+    u, dG, n, B
+  );
+
+  // 3. x ~ U(0,1)
+  vector_uniform_number_generator<<<1, B, 0, stream>>>(
+    x, B
+  );
+
+  // 4. prob = B/(u+B)
+  calculate_prob<<<1, B, 0, stream>>>(
+    prob, d, B
+  );
+      
+  // 5. x <= prob[u] -> S[i] = rand(B)
+
+  // 6. x > prob[u] ->
+  //      rowsum(prob) == prob[i] -> S[i] = rand(B)
+  //      prob / rowsum(prob) -> S[i] = multinomial
 
 }
-
-
 
 
 int main (int argc, char *argv[]) {
@@ -461,10 +409,10 @@ int main (int argc, char *argv[]) {
   //int* cpu_out = new int[width*width];
   //matrix_transpose_seq(cpu_out, M.data(), width);
   //matrix_addition_seq(cpu_out, cpu_out, M.data(), width);
-  int* cpu_out = new int[width];
-  float* cpu_out2 = new float[width*width];
-  matrix_row_reduce_seq(cpu_out, M.data(), width);
-  matrix_row_divide_seq(cpu_out2, M.data(), cpu_out, width);
+  //int* cpu_out = new int[width];
+  //float* cpu_out2 = new float[width*width];
+  //matrix_row_reduce_seq(cpu_out, M.data(), width);
+  //matrix_row_divide_seq(cpu_out2, M.data(), cpu_out, width);
 
   //////////////
   cudaStream_t stream;
@@ -476,20 +424,10 @@ int main (int argc, char *argv[]) {
   float* res = new float[width*width];
   //int* res = new int[width];
 
-  // 11.2
-  //cudaMallocAsync(&gpu_in, sizeof(int)*width*width, stream);
-  //cudaMallocAsync(&gpu_out, sizeof(int)*width*width, stream);
-  //cudaMallocAsync(&gpu_out, sizeof(int)*width, stream);
-
-  //cudaMemcpyAsync(gpu_in, M.data(), sizeof(int)*width*width, cudaMemcpyDefault, stream);
-  //cudaMemcpyAsync(gpu_in, M.data(), sizeof(int)*width, cudaMemcpyDefault, stream);
-
-
-  // 11.1
-  cudaMalloc(&gpu_in, sizeof(int)*width*width);
-  cudaMalloc(&gpu_out, sizeof(int)*width);
-  cudaMalloc(&gpu_out2, sizeof(int)*width*width);
-  cudaMemcpy(gpu_in, M.data(), sizeof(int)*width*width, cudaMemcpyDefault);
+  cudaMallocAsync(&gpu_in, sizeof(int)*width*width, stream);
+  cudaMallocAsync(&gpu_out, sizeof(int)*width, stream);
+  cudaMallocAsync(&gpu_out2, sizeof(int)*width*width, stream);
+  cudaMemcpyAsync(gpu_in, M.data(), sizeof(int)*width*width, cudaMemcpyDefault, stream);
 
 
   //matrix_transposeDiagonal<<<dimGrid, dimBlock, 0, stream>>>(
@@ -505,27 +443,20 @@ int main (int argc, char *argv[]) {
 	gpu_out2, gpu_in, gpu_out, width
   );
 
-  // 11.2
-  //cudaMemcpyAsync(res, gpu_out, sizeof(int)*width*width, cudaMemcpyDefault, stream);
-  //cudaMemcpyAsync(res, gpu_out, sizeof(int)*width, cudaMemcpyDefault, stream);
-
-  cudaMemcpy(res, gpu_out2, sizeof(int)*width*width, cudaMemcpyDefault);
+  cudaMemcpyAsync(res, gpu_out2, sizeof(int)*width*width, cudaMemcpyDefault, stream);
 
   cudaStreamSynchronize(stream);
 
   ////////////
 
 
-  check<float>(cpu_out2, res, width);
-  //check1d(cpu_out, res, width);
-
-
   ///////////
-  //cudaFreeAsync(gpu_in, stream);
-  //cudaFreeAsync(gpu_out, stream);
+  cudaFreeAsync(gpu_in, stream);
+  cudaFreeAsync(gpu_out, stream);
+  cudaFreeAsync(gpu_out2, stream);
   cudaStreamDestroy(stream);
 
-  delete[] cpu_out; 
+  //delete[] cpu_out; 
   delete[] res; 
 
 
