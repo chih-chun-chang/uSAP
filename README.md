@@ -47,3 +47,27 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 ## TODO
 - [ ] Streaming Graph Input
 - [ ] GPU
+
+## GPU version
+
+### Data Structure
+
+<img src="docs/gpu_data.jpg" width="600">
+
+### Block Merge
+
+- Sequential flow
+
+<img src="docs/merge_seq_flow.jpg" width="500">
+
+- Parallel Using ```CudaStream_t```
+
+<img src="docs/merge_flow_stream.jpg" width="700">
+
+### Compute the Change of Entropy
+
+<img src="docs/ds_gpu.jpg" width="700">
+
+- Entropy after merging
+
+<img src="docs/ds_new.jpg" width="600">
