@@ -264,7 +264,7 @@ __global__ void calculate_dS_in(float* dS_in,
 }
 
 template <typename Node, typename Weight>
-__global__ void calculate_dS_new_out(float* dS_new_out, float* dS_out, Node* s,
+__global__ void calculate_dS_new_out(float* dS_new_out, Node* s,
                                      Csr<Node, Weight>* csr_out, 
                                      Csr<Node, Weight>* csr_in, unsigned B) {
 
@@ -329,7 +329,7 @@ __global__ void calculate_dS_new_out(float* dS_new_out, float* dS_out, Node* s,
 
 
 template <typename Node, typename Weight>
-__global__ void calculate_dS_new_in(float* dS_new_in, float* dS_in, Node* s,
+__global__ void calculate_dS_new_in(float* dS_new_in, Node* s,
                                     Csr<Node, Weight>* csr_out, 
                                     Csr<Node, Weight>* csr_in, unsigned B) {
 
@@ -451,7 +451,37 @@ __global__ void calculate_dS_overall(float* dS, float* dS_out, float* dS_in,
   }
 }
 
+template <typename Node, typename Weight>
+__global__ void propose(Node* gpu_random_blocks, Node* gpu_sampling_neighbors1,
+                        Node* gpu_sampling_neighbors2, Node* s, 
+                        float* gpu_uniform_x, float* gpu_acceptance_prob,
+                        Weight* deg, unsigned B) {
 
+  unsigned r = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (r < B) {
+    
+    if (deg[r] > 0) {
+      unsigned u = gpu_sampling_neighbors1[r];
+      if (gpu_uniform_x[r] <= gpu_acceptance_prob[u]) {
+        s[r] = gpu_random_blocks[r];
+      }
+      else {
+        unsigned u = gpu_sampling_neighbors2[r];
+        if (deg[u] == 0) {
+          s[r] = gpu_random_blocks[r];   
+        }
+        else {
+          s[r] = u;
+        }
+      }
+    }
+    else {
+      s[r] = gpu_random_blocks[r];
+    }
+  }
+
+}
 
 
 
@@ -462,14 +492,22 @@ void propose_block_merge(Csr<Node, Weight>* gpu_csr_out,
                          Csr<Node, Weight>* gpu_csr_in,
                          Weight* gpu_deg,
                          Node* gpu_random_blocks,
-                         Node* gpu_sampling_neighbors,
+                         Node* gpu_sampling_neighbors1,
+                         Node* gpu_sampling_neighbors2,
                          float* gpu_uniform_x,
                          float* gpu_acceptance_prob,
+                         Node* proposed_blocks,
+                         float* gpu_dS_out,
+                         float* gpu_dS_in,
+                         float* gpu_dS_new_out,
+                         float* gpu_dS_new_in,
+                         float* gpu_dS,
                          unsigned B,
                          cudaStream_t s1,
                          cudaStream_t s2,
                          cudaStream_t s3,
-                         cudaStream_t s4) {
+                         cudaStream_t s4,
+                         cudaStream_t s5) {
 
   
   unsigned block_size = 256;
@@ -484,17 +522,50 @@ void propose_block_merge(Csr<Node, Weight>* gpu_csr_out,
   );
 
   sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
-    gpu_sampling_neighbors, gpu_csr_out, gpu_csr_in, gpu_deg, B
+    gpu_sampling_neighbors1, gpu_csr_out, gpu_csr_in, gpu_deg, B
   );
 
-  calculate_acceptance_prob<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+  sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+    gpu_sampling_neighbors2, gpu_csr_out, gpu_csr_in, gpu_deg, B
+  );
+
+  calculate_acceptance_prob<Node, Weight> <<<num_blocks, block_size, 0, s5>>>(
     gpu_acceptance_prob, gpu_deg, B
   );
 
   cudaDeviceSynchronize();
 
-  // ....
+  propose<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+    gpu_random_blocks, gpu_sampling_neighbors1, gpu_sampling_neighbors2,
+    proposed_blocks, gpu_uniform_x, gpu_acceptance_prob, gpu_deg, B
+  );
 
+  cudaDeviceSynchronize();
+
+  calculate_dS_out<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+    gpu_dS_out, gpu_csr_out, gpu_csr_in, B
+  );
+
+  calculate_dS_in<Node, Weight> <<<num_blocks, block_size, 0, s2>>>(
+    gpu_dS_in, gpu_csr_out, gpu_csr_in, B
+  );
+
+  calculate_dS_new_out<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
+    gpu_dS_new_out, proposed_blocks, gpu_csr_out, gpu_csr_in, B
+  );
+
+  calculate_dS_new_in<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+    gpu_dS_new_in, proposed_blocks, gpu_csr_out, gpu_csr_in, B
+  );
+
+  cudaDeviceSynchronize();
+
+  calculate_dS_overall<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+    gpu_dS, gpu_dS_out, gpu_dS_in, gpu_dS_new_out, gpu_dS_new_in,
+    gpu_csr_out, gpu_csr_in, proposed_blocks, B
+  );
+
+  cudaDeviceSynchronize();
 }
 
 int main (int argc, char *argv[]) {
