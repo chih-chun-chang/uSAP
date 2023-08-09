@@ -457,112 +457,45 @@ __global__ void calculate_dS_overall(float* dS, float* dS_out, float* dS_in,
 
 
 // ---------------------- Partition -------------------------//
-/*
 template <typename Node, typename Weight>
-void propose_block_merge(
-  Weight* M, // inter-block edge count (B*B)
-  Node* G,
-  unsigned B // current block number
-) {
+void propose_block_merge(Csr<Node, Weight>* gpu_csr_out,
+                         Csr<Node, Weight>* gpu_csr_in,
+                         Weight* gpu_deg,
+                         Node* gpu_random_blocks,
+                         Node* gpu_sampling_neighbors,
+                         float* gpu_uniform_x,
+                         float* gpu_acceptance_prob,
+                         unsigned B,
+                         cudaStream_t s1,
+                         cudaStream_t s2,
+                         cudaStream_t s3,
+                         cudaStream_t s4) {
 
-  cudaStream_t stream;
-  cudaStreamCreate(&stream); // TODO: create multiple stream for num_proposal??
-
-  Weight* gpu_M;
-  Weight* gpu_Mt;
-  Weight* dout; // degree out for each block (B*1)
-  Weight* din;  // degree in for each block (B*1)
-  Weight* d;
-  float* P; // probability matrix (B*B)
-  float* x;
-
-  Node* S; // proposal for each block (B*1)
-  unsigned* n; // random index (B*1)
-  Node* dG;
-  Node* u; 
-
-  // TODO: malloc only once
-  cudaMallocAsync(&gpu_M, sizeof(Weight)*B*B, stream);
-  cudaMallocAsync(&gpu_Mt, sizeof(Weight)*B*B, stream);
-  cudaMallocAsync(&dout, sizeof(Weight)*B, stream);
-  cudaMallocAsync(&din, sizeof(Weight)*B, stream);
-  cudaMallocAsync(&d, sizeof(Weight)*B, stream);
-  cudaMallocAsync(&P, sizeof(float)*B*B, stream);
-  cudaMallocAsync(&S, sizeof(Node)*B, stream);
-  cudaMallocAsync(&n, sizeof(unsigned)*B, stream);
-  cudaMallocAsync(&dG, sizeof(Node)*B, stream);
-  cudaMallocAsync(&u, sizeof(Node)*B, stream);
-  cudaMallocAsync(&x, sizeof(float)*B, stream);
-
-  cudaMemcpyAsync(gpu_M, M, sizeof(Weight)*B*B, cudaMemcpyDefault, stream);
-  cudaMemcpyAsync(dG, G, sizeof(Node)*B, cudaMemcpyDefault, stream);
-
-  dim3 dimGrid(B/TILE_DIM, B/TILE_DIM, 1);
-  dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
-
-  // dout = MI
-  matrix_row_reduce<<<dimGrid, dimBlock, 0, stream>>>(
-    dout, gpu_M, B
-  );
   
-  // din = MtI (TODO: matrix_col_reduce)
-  matrix_transpose<<<dimGrid, dimBlock, 0, stream>>>(
-    din, gpu_M, B
-  );
-  matrix_row_reduce<<<dimGrid, dimBlock, 0, stream>>>(
-    din, din, B
-  );
+  unsigned block_size = 256;
+  unsigned num_blocks = (B + block_size - 1) / block_size;
   
-  // d = din + dout
-  vector_addition<<<dimGrid, dimBlock, 0, stream>>>(
-	d, din, dout, B
-  );
-  
-  // P = (M+Mt)/d
-  matrix_transpose<<<dimGrid, dimBlock, 0, stream>>>(
-    gpu_Mt, gpu_M, B
-  );
-  matrix_addition<<<dimGrid, dimBlock, 0, stream>>>(
-    gpu_Mt, gpu_Mt, gpu_M, B
-  );
-  matrix_row_divide<<<dimGrid, dimBlock, 0, stream>>>(
-	P, gpu_Mt, d, B
+  random_block_generator<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+    gpu_random_blocks, B
   );
 
-  // if d[i] == 0 -> S[i] = rand(B)
-  vector_random_number_generator<<<1, B, 0, stream>>>(
-    S, d, B
+  uniform_number_generator<Node, Weight> <<<num_blocks, block_size, 0, s2>>>(
+    gpu_uniform_x, B
   );
 
-  // if d[i] != 0 -> ...
-  // 1. multinomial based on P
-  matrix_discrete_distribution<<<1, B, 0, stream>>>(
-    // TODO:...
-  ); 
-  
-  // 2. u = G[n]
-  vector_map<<<1, B, 0, stream>>>(
-    u, dG, n, B
+  sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
+    gpu_sampling_neighbors, gpu_csr_out, gpu_csr_in, gpu_deg, B
   );
 
-  // 3. x ~ U(0,1)
-  vector_uniform_number_generator<<<1, B, 0, stream>>>(
-    x, B
+  calculate_acceptance_prob<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+    gpu_acceptance_prob, gpu_deg, B
   );
 
-  // 4. prob = B/(u+B)
-  calculate_prob<<<1, B, 0, stream>>>(
-    prob, d, B
-  );
-      
-  // 5. x <= prob[u] -> S[i] = rand(B)
+  cudaDeviceSynchronize();
 
-  // 6. x > prob[u] ->
-  //      rowsum(prob) == prob[i] -> S[i] = rand(B)
-  //      prob / rowsum(prob) -> S[i] = multinomial
+  // ....
 
 }
-*/
 
 int main (int argc, char *argv[]) {
   
