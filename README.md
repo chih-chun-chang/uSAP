@@ -47,9 +47,3 @@ The dataset is from [2022 Streaming Partition Challenge Datasets with Known Trut
 ## TODO
 - [ ] Streaming Graph Input
 - [ ] GPU
-
-<img src="docs/ds_gpu.jpg" width="700">
-
-- Entropy after merging
-
-<img src="docs/ds_new.jpg" width="600">
