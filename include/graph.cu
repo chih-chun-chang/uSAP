@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <numeric>
+#include <set>
 
 //const int TILE_DIM = 32;
 //const int BLOCK_ROWS = 8;
@@ -37,21 +39,29 @@ struct Graph {
   Csr<Node, Weight> csr_out;
   Csr<Node, Weight> csr_in;
   std::vector<Weight> deg;
+  std::vector<Node> blocks;
   Graph() : N(0), E(0) {}
 };
 
 template <typename Node, typename Weight>
-bool compare_s(const Edge<Node, Weight>& e1, const Edge<Node, Weight>&& e2) {
+struct Block {
+  Csr<Node, Weight> csr_out;
+  Csr<Node, Weight> csr_in;
+  std::vector<Weight> deg;
+};
+
+template <typename Node, typename Weight>
+bool compare_s(const Edge<Node, Weight>& e1, const Edge<Node, Weight>& e2) {
   return e1.s < e2.s;
 }
 
 template <typename Node, typename Weight>
-bool compare_t(const Edge<Node, Weight>&& e1, const Edge<Node, Weight>&& e2) {
+bool compare_t(const Edge<Node, Weight>& e1, const Edge<Node, Weight>& e2) {
   return e1.t < e2.t;
 }
 
 template <typename Node, typename Weight>
-void load_graph_from_tsv(const std::string& FileName, Csr<Node, Weight>& csr) {
+Graph<Node, Weight> load_graph_from_tsv(const std::string& FileName) {
   std::ifstream file(FileName + ".tsv");
   if (!file.is_open()) {
     std::cerr << "Unable to open file!\n";
@@ -82,35 +92,36 @@ void load_graph_from_tsv(const std::string& FileName, Csr<Node, Weight>& csr) {
   g.E = g.edges.size();
   g.deg.resize(g.N);
   
-  std::sort(g.edges.begin(), g.edges.end(), compare_s);
+  std::sort(g.edges.begin(), g.edges.end(), compare_s<Node, Weight>);
   g.csr_out.adj_ptr.emplace_back(0);
   g.csr_out.deg.resize(g.N);
   s = 0;
   for (unsigned i = 0; i < g.E; i++) {
-    if (g.edges[i].s - 1 != s) {
+    if (g.edges[i].s != s) {
       s++;
       g.csr_out.adj_ptr.emplace_back(i);
     }
-    g.csr_out.adj_node.emplace_back(g.edges[i].t - 1);
+    g.csr_out.adj_node.emplace_back(g.edges[i].t);
     g.csr_out.adj_wgt.emplace_back(g.edges[i].w);
-    g.csr_out.deg[g.edges[i].s - 1] += g.edges[i].w;
-    g.deg[g.edges[i].s - 1] += g.edges[i].w;
+    g.csr_out.deg[g.edges[i].s] += g.edges[i].w;
+    g.deg[g.edges[i].s] += g.edges[i].w;
   }
 
-  std::sort(g.edges.begin(), g.edges.end(), compare_t);
+  std::sort(g.edges.begin(), g.edges.end(), compare_t<Node, Weight>);
   g.csr_in.adj_ptr.emplace_back(0);
   g.csr_in.deg.resize(g.N);
   t = 0;
   for (unsigned i = 0; i < g.E; i++) {
-    if (g.edges[i].t - 1 != t) {
+    if (g.edges[i].t != t) {
       t++;
       g.csr_in.adj_ptr.emplace_back(i);
     }
-    g.csr_in.adj_node.emplace_back(g.edges[i].s - 1);
+    g.csr_in.adj_node.emplace_back(g.edges[i].s);
     g.csr_in.adj_wgt.emplace_back(g.edges[i].w);
-    g.csr_in.deg[g.edges[i].t - 1] += g.edges[i].w;
-    g.deg[g.edges[i].t - 1] += g.edges[i].w;
+    g.csr_in.deg[g.edges[i].t] += g.edges[i].w;
+    g.deg[g.edges[i].t] += g.edges[i].w;
   }
+  return g;
 }
 
 
@@ -128,6 +139,20 @@ __global__ void random_block_generator(Node* gpu_random_blocks, unsigned B) {
   }
 
 }
+
+template <typename Node, typename Weight>
+__global__ void random_block_generator_nodal(Node* gpu_random_blocks, unsigned B, unsigned N) {
+
+  unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (idx < N) {
+    curandState state;
+    curand_init(clock64(), idx, 0, &state);
+    gpu_random_blocks[idx] = curand(&state) % B;
+  }
+
+}
+
 
 template <typename Node, typename Weight>
 __global__ void uniform_number_generator(float* gpu_uniform_x, unsigned B) {
@@ -156,8 +181,12 @@ __global__ void calculate_acceptance_prob(float* gpu_acceptance_prob, Weight*
 
 template <typename Node, typename Weight>
 __global__ void sample_neighbors(Node* gpu_sampling_neighbors, 
-                                 Csr<Node, Weight>* csr_out,
-                                 Csr<Node, Weight>* csr_in, 
+                                 unsigned* csr_out_adj_ptr,
+  				 Node* csr_out_adj_node,
+                                 Weight* csr_out_adj_wgt,
+                                 unsigned* csr_in_adj_ptr,
+                                 Node* csr_in_adj_node,
+                                 Weight* csr_in_adj_wgt,
                                  Weight* deg, unsigned B) {
 
   unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -170,11 +199,11 @@ __global__ void sample_neighbors(Node* gpu_sampling_neighbors,
 
     unsigned out_s, out_e;
     unsigned in_s, in_e;
-    out_s = csr_out[idx].adj_ptr;
-    in_s = csr_in[idx].adj_ptr;
+    out_s = csr_out_adj_ptr[idx];
+    in_s = csr_in_adj_ptr[idx];
     if (idx + 1 < B) {
-      out_e = csr_out[idx+1].adj_ptr;
-      in_e = csr_in[idx+1].adj_ptr;
+      out_e = csr_out_adj_ptr[idx+1];
+      in_e = csr_in_adj_ptr[idx+1];
     }
     else {
       out_e = B;
@@ -185,18 +214,18 @@ __global__ void sample_neighbors(Node* gpu_sampling_neighbors,
     unsigned neighbor;
     unsigned find = 0;
     for (unsigned i = out_s; i < out_e; i++) {
-      prob_sum += (float)csr_out[i].adj_wgt[i]/deg[idx];
+      prob_sum += (float)csr_out_adj_wgt[i]/deg[idx];
       if (random > prob_sum) {
-        neighbor = csr_out[i].adj_node[i];
+        neighbor = csr_out_adj_node[i];
         find = 1;
         break;
       }
     }
     if (find == 0) {
       for (unsigned i = in_s; i < in_e; i++) {
-        prob_sum += (float)csr_in[i].adj_wgt/deg[idx];
+        prob_sum += (float)csr_in_adj_wgt[i]/deg[idx];
         if (random > prob_sum) {
-          neighbor = csr_in[i].adj_node;
+          neighbor = csr_in_adj_node[i];
           break;
         }
       }
@@ -210,26 +239,91 @@ __global__ void sample_neighbors(Node* gpu_sampling_neighbors,
 
 
 template <typename Node, typename Weight>
-__global__ void calculate_dS_out(float* dS_out, 
-                                 Csr<Node, Weight>* csr_out, 
-                                 Csr<Node, Weight>* csr_in, 
+__global__ void sample_neighbors_nodal(Node* gpu_sampling_neighbors,
+                                       unsigned* csr_out_adj_ptr,
+                                       Node* csr_out_adj_node,
+                                       Weight* csr_out_adj_wgt,
+                                       unsigned* csr_in_adj_ptr,
+                                       Node* csr_in_adj_node,
+                                       Weight* csr_in_adj_wgt,
+                                       Weight* deg, 
+				       Node* blocks, unsigned N) {
+
+  unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (idx < N) {
+    
+    curandState state;
+    curand_init(clock64(), idx, 0, &state);
+    float random = curand_uniform(&state);
+
+    unsigned out_s, out_e;
+    unsigned in_s, in_e;
+
+    out_s = csr_out_adj_ptr[idx];
+    in_s = csr_in_adj_ptr[idx];
+    if (idx + 1 < N) {
+      out_e = csr_out_adj_ptr[idx+1];
+      in_e = csr_in_adj_ptr[idx+1];
+    }
+    else {
+      out_e = N;
+      in_e = N;
+    }
+
+    float prob_sum = 0.0f;
+    unsigned neighbor;
+    unsigned find = 0;
+    for (unsigned i = out_s; i < out_e; i++) {
+      prob_sum += (float)csr_out_adj_wgt[i]/deg[idx];
+      if (random > prob_sum) {
+        neighbor = blocks[csr_out_adj_node[i]];
+        find = 1;
+        break;
+      }
+    }
+    if (find == 0) {
+      for (unsigned i = in_s; i < in_e; i++) {
+        prob_sum += (float)csr_in_adj_wgt[i]/deg[idx];
+        if (random > prob_sum) {
+          neighbor = blocks[csr_in_adj_node[i]];
+          break;
+        }
+      }
+    }
+
+    gpu_sampling_neighbors[idx] = neighbor;
+  
+  }
+
+}
+
+
+
+template <typename Node, typename Weight>
+__global__ void calculate_dS_out(float* dS_out,
+	       			 unsigned* csr_out_adj_ptr,
+  				 Node* csr_out_adj_node,
+  				 Weight* csr_out_adj_wgt,
+  				 Weight* csr_out_deg,
+  				 Weight* csr_in_deg,
                                  unsigned B) {
   
   unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (idx < B) {
-    unsigned out_s = csr_out[idx].adj_ptr;
+    unsigned out_s = csr_out_adj_ptr[idx];
     unsigned out_e;
     if (idx + 1 < B) {
-      out_e = csr_out[idx+1].adj_ptr;
+      out_e = csr_out_adj_ptr[idx+1];
     }
     else {
       out_e = B;
     }
     float dS = 0;
     for (unsigned i = out_s; i < out_e; i++) {
-      dS += (float)csr_out[i].adj_wgt * std::log((float)csr_out[i].adj_wgt
-          / (csr_out[idx].deg * csr_in[csr_out[i].adj_node].deg));
+      dS += (float)csr_out_adj_wgt[i] * std::log((float)csr_out_adj_wgt[i]
+          / (csr_out_deg[idx] * csr_in_deg[csr_out_adj_node[i]]));
     }
     dS_out[idx] = dS;
   }
@@ -238,35 +332,44 @@ __global__ void calculate_dS_out(float* dS_out,
 
 template <typename Node, typename Weight>
 __global__ void calculate_dS_in(float* dS_in, 
-                                Csr<Node, Weight>* csr_out, 
-                                Csr<Node, Weight>* csr_in,
-                                unsigned B) {
+                                unsigned* csr_in_adj_ptr,
+                                Node* csr_in_adj_node,
+                                Weight* csr_in_adj_wgt,
+                                Weight* csr_in_deg,
+                                Weight* csr_out_deg,
+				unsigned B) {
     
   unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (idx < B) {
-    unsigned in_s = csr_in[idx].adj_ptr;
+    unsigned in_s = csr_in_adj_ptr[idx];
     unsigned in_e;
     if (idx + 1 < B) {
-      in_e = csr_in[idx+1].adj_ptr;
+      in_e = csr_in_adj_ptr[idx+1];
     }
     else {
       in_e = B;
     }
     float dS = 0;
     for (unsigned i = in_s; i < in_e; i++) {
-      dS += (float)csr_in[i].adj_wgt * std::log((float)csr_in[i].adj_wgt
-          / (csr_out[csr_in[i].adj_node].deg * csr_in[idx].deg));
+      dS += (float)csr_in_adj_wgt[i] * std::log((float)csr_in_adj_wgt[i]
+          / (csr_out_deg[csr_in_adj_node[i]] * csr_in_deg[idx]));
     }
     dS_in[idx] = dS;
   }
 
 }
 
+
+// Potential Bottleneck?
 template <typename Node, typename Weight>
 __global__ void calculate_dS_new_out(float* dS_new_out, Node* s,
-                                     Csr<Node, Weight>* csr_out, 
-                                     Csr<Node, Weight>* csr_in, unsigned B) {
+                                     unsigned* csr_out_adj_ptr,
+                                     Node* csr_out_adj_node,
+                                     Weight* csr_out_adj_wgt,
+                                     Weight* csr_out_deg,
+                                     Weight* csr_in_deg, 
+				     unsigned B) {
 
   unsigned r = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -274,16 +377,16 @@ __global__ void calculate_dS_new_out(float* dS_new_out, Node* s,
     unsigned s_ = s[r]; 
     unsigned out_r_s, out_r_e;
     unsigned out_s_s, out_s_e;
-    out_r_s = csr_out[r].adj_ptr;
-    out_s_s = csr_out[s_].adj_ptr;
+    out_r_s = csr_out_adj_ptr[r];
+    out_s_s = csr_out_adj_ptr[s_];
     if (r + 1 < B) {
-      out_r_e = csr_out[r+1].adj_ptr;
+      out_r_e = csr_out_adj_ptr[r+1];
     }   
     else {
       out_r_e = B;
     }    
     if (s_ + 1 < B) {
-      out_s_e = csr_out[s_+1].adj_ptr;
+      out_s_e = csr_out_adj_ptr[s_+1];
     }
     else {
       out_s_e = B;
@@ -291,36 +394,37 @@ __global__ void calculate_dS_new_out(float* dS_new_out, Node* s,
     unsigned i = out_r_s, j = out_s_s;
     float dS = 0;
     Weight w;
-    Weight dout = csr_out[r].deg + csr_out[s_].deg;
+    Weight dout = csr_out_deg[r] + csr_out_deg[s_];
     Node n;
+    // ascending order
     while (i < out_r_e && j < out_s_e) {
-      if (csr_out[i].adj_node < csr_out[j].adj_node) {
-        w = csr_out[i].adj_wgt;
-        n = csr_out[i].adj_node;
+      if (csr_out_adj_node[i] < csr_out_adj_node[j]) {
+        w = csr_out_adj_wgt[i];
+        n = csr_out_adj_node[i];
         i++;
       }
-      else if (csr_out[i].adj_node > csr_out[j].adj_node) {
-        w = csr_out[j].adj_wgt;
-        n = csr_out[j].adj_node;
+      else if (csr_out_adj_node[i] > csr_out_adj_node[j]) {
+        w = csr_out_adj_wgt[j];
+        n = csr_out_adj_node[j];
         j++;
       }
       else {
-        w = csr_out[i].adj_wgt + csr_out[j].adj_wgt;
-        n = csr_out[i].adj_node;
+        w = csr_out_adj_wgt[i] + csr_out_adj_wgt[j];
+        n = csr_out_adj_node[i];
         i++;
         j++;
       }
-      dS -= w * std::log((float)w/(dout*csr_in[n].deg));
+      dS -= w * std::log((float)w/(dout*csr_in_deg[n]));
     }
     for (; i < out_r_e; i++) {
-      w = csr_out[i].adj_wgt;
-      n = csr_out[i].adj_node;
-      dS -= w * std::log((float)w/(dout*csr_in[n].deg));
+      w = csr_out_adj_wgt[i];
+      n = csr_out_adj_node[i];
+      dS -= w * std::log((float)w/(dout*csr_in_deg[n]));
     }
     for (; j < out_s_e; j++) {
-      w = csr_out[j].adj_wgt;
-      n = csr_out[j].adj_node;
-      dS -= w * std::log((float)w/(dout*csr_out[n].deg));
+      w = csr_out_adj_wgt[j];
+      n = csr_out_adj_node[j];
+      dS -= w * std::log((float)w/(dout*csr_out_deg[n]));
     }
     dS_new_out[r] = dS;
   }
@@ -330,8 +434,12 @@ __global__ void calculate_dS_new_out(float* dS_new_out, Node* s,
 
 template <typename Node, typename Weight>
 __global__ void calculate_dS_new_in(float* dS_new_in, Node* s,
-                                    Csr<Node, Weight>* csr_out, 
-                                    Csr<Node, Weight>* csr_in, unsigned B) {
+                                    unsigned* csr_in_adj_ptr,
+                                    Node* csr_in_adj_node,
+                                    Weight* csr_in_adj_wgt,
+                                    Weight* csr_in_deg,                    
+				    Weight* csr_out_deg,
+				    unsigned B) {
 
   unsigned r = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -339,16 +447,16 @@ __global__ void calculate_dS_new_in(float* dS_new_in, Node* s,
     unsigned s_ = s[r];
     unsigned in_r_s, in_r_e;
     unsigned in_s_s, in_s_e;
-    in_r_s = csr_in[r].adj_ptr;
-    in_s_s = csr_in[s_].adj_ptr;
+    in_r_s = csr_in_adj_ptr[r];
+    in_s_s = csr_in_adj_ptr[s_];
     if (r + 1 < B) {
-      in_r_e = csr_in[r+1].adj_ptr;
+      in_r_e = csr_in_adj_ptr[r+1];
     } 
     else {
       in_r_e = B;
     } 
     if (s_ + 1 < B) {
-      in_s_e = csr_in[s_+1].adj_ptr;
+      in_s_e = csr_in_adj_ptr[s_+1];
     }
     else {
       in_s_e = B;
@@ -356,36 +464,37 @@ __global__ void calculate_dS_new_in(float* dS_new_in, Node* s,
     unsigned i = in_r_s, j = in_s_s;
     float dS = 0;
     Weight w;
-    Weight din = csr_in[r].deg + csr_in[s_].deg;
+    Weight din = csr_in_deg[r] + csr_in_deg[s_];
     Node n;
+    // ascending order
     while (i < in_r_e && j < in_s_e) {
-      if (csr_in[i].adj_node < csr_in[j].adj_node) {
-        w = csr_in[i].adj_wgt;
-        n = csr_in[i].adj_node;
+      if (csr_in_adj_node[i] < csr_in_adj_node[j]) {
+        w = csr_in_adj_wgt[i];
+        n = csr_in_adj_node[i];
         i++;
       }
-      else if (csr_in[i].adj_node > csr_in[j].adj_node) {
-        w = csr_in[j].adj_wgt;
-        n = csr_in[j].adj_node;
+      else if (csr_in_adj_node[i] > csr_in_adj_node[j]) {
+        w = csr_in_adj_wgt[j];
+        n = csr_in_adj_node[j];
         j++;
       }
       else {
-        w = csr_in[i].adj_wgt + csr_in[j].adj_wgt;
-        n = csr_in[i].adj_node;
+        w = csr_in_adj_wgt[i] + csr_in_adj_wgt[j];
+        n = csr_in_adj_node[i];
         i++;
         j++;
       }
-      dS -= w * std::log((float)w/(csr_out[n].deg*din));
+      dS -= w * std::log((float)w/(csr_out_deg[n]*din));
     }
     for (; i < in_r_e; i++) {
-      w = csr_in[i].adj_wgt;
-      n = csr_in[i].adj_node;
-      dS -= w * std::log((float)w/(csr_out[n].deg*din));
+      w = csr_in_adj_wgt[i];
+      n = csr_in_adj_node[i];
+      dS -= w * std::log((float)w/(csr_out_deg[n]*din));
     }
     for (; j < in_s_e; j++) {
-      w = csr_in[j].adj_wgt;
-      n = csr_in[j].adj_node;
-      dS -= w * std::log((float)w/(csr_out[n].deg*din));
+      w = csr_in_adj_wgt[j];
+      n = csr_in_adj_node[j];
+      dS -= w * std::log((float)w/(csr_out_deg[n]*din));
     }
     dS_new_in[r] = dS;
   }
@@ -395,9 +504,14 @@ __global__ void calculate_dS_new_in(float* dS_new_in, Node* s,
 template <typename Node, typename Weight>
 __global__ void calculate_dS_overall(float* dS, float* dS_out, float* dS_in,
                                      float* dS_new_out, float* dS_new_in, 
-                                     Csr<Node, Weight>* csr_out, 
-                                     Csr<Node, Weight>* csr_in, Node* s,
-                                     unsigned B) {
+				     unsigned* csr_out_adj_ptr,
+                                     Node* csr_out_adj_node,
+                                     Weight* csr_out_adj_wgt,
+                                     Weight* csr_out_deg,
+                                     Weight* csr_in_deg,
+				     Node* s,
+                                     Node* bestS,
+				     unsigned B) {
 
   unsigned r = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -411,45 +525,93 @@ __global__ void calculate_dS_overall(float* dS, float* dS_out, float* dS_in,
     dS_ -= dS_new_out[r];
     dS_ -= dS_new_in[r];
     
-    unsigned out_r_s, out_r_e;
-    unsigned out_s_s, out_s_e;
-    out_r_s = csr_out[r].adj_ptr;
-    out_s_s = csr_out[s_].adj_ptr;
+    unsigned out_r_s = csr_out_adj_ptr[r];
+    unsigned out_r_e;
+    unsigned out_s_s = csr_out_adj_ptr[s_];
+    unsigned out_s_e;
     if (r + 1 < B) {
-      out_r_e = csr_out[r+1].adj_ptr;
+      out_r_e = csr_out_adj_ptr[r+1];
     } 
     else {
       out_r_e = B;
     }
     if (s_ + 1 < B) {
-      out_s_e = csr_out[s_+1].adj_ptr;
+      out_s_e = csr_out_adj_ptr[s_+1];
     }
     else {
       out_s_e = B;
     }
-    for (unsigned i = 0; i < out_r_e; i++) {
-      if (csr_out[i].adj_node == r) {
-        dS_ -= csr_out[i].adj_wgt
-          * std::log((float)csr_out[i].adj_wgt/(csr_out[r].deg*csr_in[r].deg));
+    for (unsigned i = out_r_s; i < out_r_e; i++) {
+      if (csr_out_adj_node[i] == r) {
+        dS_ -= csr_out_adj_wgt[i]
+          * std::log((float)csr_out_adj_wgt[i]/(csr_out_deg[r]*csr_in_deg[r]));
       }
-      if (csr_out[i].adj_node == s_) {
-        dS_ -= csr_out[i].adj_wgt
-          * std::log((float)csr_out[i].adj_wgt/(csr_out[r].deg*csr_in[s_].deg));
-      }
-    }
-    for (unsigned i = 0; i < out_s_e; i++) {
-      if (csr_out[i].adj_node == r) {
-        dS_ -= csr_out[i].adj_wgt
-          * std::log((float)csr_out[i].adj_wgt/(csr_out[s_].deg*csr_in[r].deg));
-      }
-      if (csr_out[i].adj_node == s_) {
-        dS_ -= csr_out[i].adj_wgt
-          * std::log((float)csr_out[i].adj_wgt/(csr_out[s_].deg*csr_in[s_].deg));
+      if (csr_out_adj_node[i] == s_) {
+        dS_ -= csr_out_adj_wgt[i]
+          * std::log((float)csr_out_adj_wgt[i]/(csr_out_deg[r]*csr_in_deg[s_]));
       }
     }
-    dS[r] = dS_;
+    for (unsigned i = out_s_s; i < out_s_e; i++) {
+      if (csr_out_adj_node[i] == r) {
+        dS_ -= csr_out_adj_wgt[i]
+          * std::log((float)csr_out_adj_wgt[i]/(csr_out_deg[s_]*csr_in_deg[r]));
+      }
+      if (csr_out_adj_node[i] == s_) {
+        dS_ -= csr_out_adj_wgt[i]
+          * std::log((float)csr_out_adj_wgt[i]/(csr_out_deg[s_]*csr_in_deg[s_]));
+      }
+    }
+    //dS[r] = dS_;
+    if (dS_ < dS[r]) {
+      bestS[r] = s_;
+      dS[r] = dS_;
+    }
   }
 }
+
+
+template <typename Node, typename Weight>
+__global__ void calculate_dS_new_out_nodal(float* dS_new_out, Node* s,
+                                           unsigned* g_csr_out_adj_ptr,
+                                           Node* g_csr_out_adj_node,
+                                           unsigned* b_csr_out_adj_ptr,
+                                           Node* b_csr_out_adj_node,
+
+					   Weight* b_csr_out_adj_wgt,
+                                           Weight* b_csr_out_deg,
+                                           
+					   
+					   
+					   Weight* csr_in_deg,
+                                           
+					   
+					   
+					   Node* blocks,
+					   unsigned N) {
+
+  
+  unsigned ni = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (ni < N) {
+   
+    unsigned r = blocks[ni];
+
+    unsigned node_e;
+    if (ni + 1 < N) {
+      node_e = g_csr_out_adj_ptr[ni+1];    	
+    }
+    else {
+      node_e = N;
+    }
+    Node b;
+    for (unsigned i = node_s; i < node_e; i++) {
+      b = blocks[g_csr_out_adj_node[i]];
+    
+    }
+  
+  }
+}
+
 
 template <typename Node, typename Weight>
 __global__ void propose(Node* gpu_random_blocks, Node* gpu_sampling_neighbors1,
@@ -462,14 +624,14 @@ __global__ void propose(Node* gpu_random_blocks, Node* gpu_sampling_neighbors1,
   if (r < B) {
     
     if (deg[r] > 0) {
-      unsigned u = gpu_sampling_neighbors1[r];
+      Node u = gpu_sampling_neighbors1[r];
       if (gpu_uniform_x[r] <= gpu_acceptance_prob[u]) {
         s[r] = gpu_random_blocks[r];
       }
       else {
-        unsigned u = gpu_sampling_neighbors2[r];
+        Node u = gpu_sampling_neighbors2[r];
         if (deg[u] == 0) {
-          s[r] = gpu_random_blocks[r];   
+          s[r] = gpu_random_blocks[r];  // Should be different?
         }
         else {
           s[r] = u;
@@ -483,50 +645,361 @@ __global__ void propose(Node* gpu_random_blocks, Node* gpu_sampling_neighbors1,
 
 }
 
+template <typename Node, typename Weight>
+__global__ void propose_n(Node* gpu_random_blocks, Node* gpu_sampling_neighbors,
+                          Node* gpu_sampling_neighbors_nodal, Node* s,
+                          float* gpu_uniform_x, float* gpu_acceptance_prob,
+                          Weight* node_deg, unsigned N) {
 
+  unsigned ni = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (ni < N) {
+    if (node_deg[ni] > 0) {
+      Node u = gpu_sampling_neighbors_nodal[ni];
+      if (gpu_uniform_x[ni] <= gpu_acceptance_prob[u]) {
+        s[ni] = gpu_random_blocks[ni];
+      }
+      else {
+        s[ni] = gpu_sampling_neighbors[u];
+      }
+    }
+    else {
+      s[ni] = gpu_random_blocks[ni];
+    }  
+  }
+
+}
 
 
 // ---------------------- Partition -------------------------//
 template <typename Node, typename Weight>
-void propose_block_merge(Csr<Node, Weight>* gpu_csr_out,
-                         Csr<Node, Weight>* gpu_csr_in,
-                         Weight* gpu_deg,
-                         Node* gpu_random_blocks,
-                         Node* gpu_sampling_neighbors1,
-                         Node* gpu_sampling_neighbors2,
-                         float* gpu_uniform_x,
-                         float* gpu_acceptance_prob,
-                         Node* proposed_blocks,
-                         float* gpu_dS_out,
-                         float* gpu_dS_in,
-                         float* gpu_dS_new_out,
-                         float* gpu_dS_new_in,
-                         float* gpu_dS,
-                         unsigned B,
-                         cudaStream_t s1,
-                         cudaStream_t s2,
-                         cudaStream_t s3,
-                         cudaStream_t s4,
-                         cudaStream_t s5) {
+void initialize_block_count(Graph<Node, Weight>& g, Block<Node, Weight>& b, unsigned B) {
 
+  std::vector<std::vector<std::pair<Node, Weight>>> Mrow(B);
+  std::vector<std::vector<std::pair<Node, Weight>>> Mcol(B);
+
+  b.deg.clear();
+  b.deg.resize(B);
+  for (unsigned i = 0; i < g.N; i++) {
+    Node k1 = g.blocks[i];
+    unsigned end;
+    if (k1 + 1 < B) {
+      end = g.csr_out.adj_ptr[k1+1];
+    }
+    else {
+      end = B;
+    }
+    for(unsigned j = g.csr_out.adj_ptr[k1]; j < end; j++) {
+      Node k2 = g.blocks[g.csr_out.adj_node[j]];
+      Mrow[k1].emplace_back(k2, g.csr_out.adj_wgt[j]);
+      b.deg[k1] += g.csr_out.adj_wgt[j];
+    }
+  }
+
+  b.csr_out.adj_ptr.clear();
+  b.csr_out.deg.resize(g.N);
+  unsigned ptr = 0;
+  for (unsigned i = 0; i < g.N; i++) {
+    b.csr_out.adj_ptr.emplace_back(ptr);
+    for (const auto& [j, w] : Mrow[i]) {
+      b.csr_out.adj_node.emplace_back(j);
+      b.csr_out.adj_wgt.emplace_back(w);
+      b.csr_out.deg[i] += w;
+      ptr++;
+    }
+  }
+
+  for (unsigned i = 0; i < g.N; i++) {
+    Node k1 = g.blocks[i];
+    unsigned end;
+    if (k1 + 1 < B) {
+      end = g.csr_in.adj_ptr[k1+1];
+    }
+    else {
+      end = B;
+    }
+    for(unsigned j = g.csr_in.adj_ptr[k1]; j < end; j++) {
+      Node k2 = g.blocks[g.csr_in.adj_node[j]];
+      Mcol[k1].emplace_back(k2, g.csr_in.adj_wgt[j]);
+      b.deg[k1] += g.csr_in.adj_wgt[j];
+    }
+  }
+
+  b.csr_in.adj_ptr.clear();
+  b.csr_in.deg.resize(g.N);
+  ptr = 0;
+  for (unsigned i = 0; i < g.N; i++) {
+    b.csr_in.adj_ptr.emplace_back(ptr);
+    for (const auto& [j, w] : Mcol[i]) {
+      b.csr_in.adj_node.emplace_back(j);
+      b.csr_in.adj_wgt.emplace_back(w);
+      b.csr_in.deg[i] += w;
+      ptr++;
+    }
+  }
+  
+
+}
+
+
+
+template <typename Node, typename Weight>
+void carry_out_best_merge(Graph<Node, Weight>& g, 
+		          std::vector<float>& dS, 
+			  std::vector<Node>& S, 
+			  unsigned B, unsigned bToMerges) {
+
+  std::vector<Node> bestMerges(B);
+  std::vector<int> blockMap(B);
+  std::vector<Node> remainBlocks;
+  std::set<Node> seen;
+
+  std::iota(bestMerges.begin(), bestMerges.end(), 0);
+  std::iota(blockMap.begin(), blockMap.end(), 0);
+  std::sort(bestMerges.begin(), bestMerges.end(), [&] (unsigned i, unsigned j) {
+    return dS[i] < dS[j];
+  });
+
+  unsigned numMerges = 0;
+  unsigned counter = 0;
+  while (numMerges < bToMerges) {
+    Node mergeFrom = bestMerges[counter];
+    Node mergeTo = blockMap[S[mergeFrom]];
+    counter++;
+    if (mergeTo != mergeFrom) {
+      for (unsigned i = 0; i < B; i++) {
+      	if (blockMap[i] == mergeFrom) {
+	  blockMap[i] = mergeTo;
+	}
+      }
+      for (unsigned i = 0; i < B; i++) {
+      	if (g.blocks[i] == mergeFrom) {
+	  g.blocks[i] = mergeTo;
+	}
+      }
+      numMerges++;
+    }
+  }
+
+  for (const auto& b : g.blocks) {
+    if (seen.find(b) == seen.end()) {
+      seen.insert(b);
+    }
+  }
+
+  remainBlocks.insert(remainBlocks.end(), seen.begin(), seen.end());
+  std::sort(remainBlocks.begin(), remainBlocks.end());
+  blockMap.clear();
+  blockMap.resize(B, -1);
+  for (unsigned i = 0; i < remainBlocks.size(); i++) {
+    blockMap[remainBlocks[i]] = i;
+  }
+  for (auto& b : g.blocks) {
+    b = blockMap[b];
+  }
+
+}
+
+
+template <typename Node, typename Weight>
+void propose_block_merge(Block<Node, Weight>& b, unsigned B, 
+		         std::vector<Node>& S,
+	                 std::vector<float>& dS,
+			 unsigned numProposals) {
   
   unsigned block_size = 256;
   unsigned num_blocks = (B + block_size - 1) / block_size;
+ 
+  // Create stream
+  cudaStream_t s1, s2, s3, s4, s5;
+  cudaStreamCreate(&s1);
+  cudaStreamCreate(&s2);
+  cudaStreamCreate(&s3);
+  cudaStreamCreate(&s4);
+  cudaStreamCreate(&s5);
+
+  // device data
+  unsigned* gpu_csr_out_adj_ptr;
+  Node* gpu_csr_out_adj_node;
+  Weight* gpu_csr_out_adj_wgt;
+  Weight* gpu_csr_out_deg;
+
+  unsigned* gpu_csr_in_adj_ptr;
+  Node* gpu_csr_in_adj_node;
+  Weight* gpu_csr_in_adj_wgt;
+  Weight* gpu_csr_in_deg;
+
+  Weight* gpu_deg;
+  Node* gpu_random_blocks;
+  Node* gpu_sampling_neighbors1;
+  Node* gpu_sampling_neighbors2;
+  float* gpu_uniform_x;
+  float* gpu_acceptance_prob;
+  Node* proposed_blocks;
+  Node* best_proposed_blocks;
+  float* gpu_dS_out;
+  float* gpu_dS_in;
+  float* gpu_dS_new_out;
+  float* gpu_dS_new_in;
+  float* gpu_dS;
+
+
+  // Allocate GPU memory
+  cudaMallocAsync(&gpu_csr_out_adj_ptr, sizeof(unsigned)*b.csr_out.adj_ptr.size(), s1);  
+  cudaMallocAsync(&gpu_csr_out_adj_node, sizeof(Node)*b.csr_out.adj_node.size(), s1);
+  cudaMallocAsync(&gpu_csr_out_adj_wgt, sizeof(Weight)*b.csr_out.adj_wgt.size(), s1);
+  cudaMallocAsync(&gpu_csr_out_deg, sizeof(Weight)*b.csr_out.deg.size(), s1);
+  cudaMallocAsync(&gpu_csr_in_adj_ptr, sizeof(unsigned)*b.csr_in.adj_ptr.size(), s1);
+  cudaMallocAsync(&gpu_csr_in_adj_node, sizeof(Node)*b.csr_in.adj_node.size(), s1);
+  cudaMallocAsync(&gpu_csr_in_adj_wgt, sizeof(Weight)*b.csr_in.adj_wgt.size(), s1);
+  cudaMallocAsync(&gpu_csr_in_deg, sizeof(Weight)*b.csr_in.deg.size(), s1);
+  cudaMallocAsync(&gpu_deg, sizeof(Weight)*B, s1);
+  cudaMallocAsync(&gpu_random_blocks, sizeof(Node)*B, s1);
+  cudaMallocAsync(&gpu_sampling_neighbors1, sizeof(Node)*B, s1);
+  cudaMallocAsync(&gpu_sampling_neighbors2, sizeof(Node)*B, s1);
+  cudaMallocAsync(&gpu_uniform_x, sizeof(float)*B, s1);
+  cudaMallocAsync(&gpu_acceptance_prob, sizeof(float)*B, s1);
+  cudaMallocAsync(&proposed_blocks, sizeof(Node)*B, s1);
+  cudaMallocAsync(&best_proposed_blocks, sizeof(Node)*B, s1);
+  cudaMallocAsync(&gpu_dS_out, sizeof(float)*B, s1);
+  cudaMallocAsync(&gpu_dS_in, sizeof(float)*B, s1);
+  cudaMallocAsync(&gpu_dS_new_out, sizeof(float)*B, s1);
+  cudaMallocAsync(&gpu_dS_new_in, sizeof(float)*B, s1);
+  cudaMallocAsync(&gpu_dS, sizeof(float)*B, s1);
+
+
+  // transfer data
+  cudaMemcpyAsync(gpu_csr_out_adj_ptr, b.csr_out.adj_ptr.data(), sizeof(unsigned)*b.csr_out.adj_ptr.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_out_adj_node, b.csr_out.adj_node.data(), sizeof(Node)*b.csr_out.adj_node.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_out_adj_wgt, b.csr_out.adj_wgt.data(), sizeof(Weight)*b.csr_out.adj_wgt.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_out_deg, b.csr_out.deg.data(), sizeof(Weight)*b.csr_out.deg.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_in_adj_ptr, b.csr_in.adj_ptr.data(), sizeof(unsigned)*b.csr_in.adj_ptr.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_in_adj_node, b.csr_in.adj_node.data(), sizeof(Node)*b.csr_in.adj_node.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_in_adj_wgt, b.csr_in.adj_wgt.data(), sizeof(Weight)*b.csr_in.adj_wgt.size(), cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(gpu_csr_in_deg, b.csr_in.deg.data(), sizeof(Weight)*b.csr_in.deg.size(), cudaMemcpyDefault, s1);
+
+
+  for(unsigned _ = 0; _ < numProposals; _++) {
+
+    random_block_generator<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+      gpu_random_blocks, B
+    );
+
+    uniform_number_generator<Node, Weight> <<<num_blocks, block_size, 0, s2>>>(
+      gpu_uniform_x, B
+    );
+
+    sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
+      gpu_sampling_neighbors1, gpu_csr_out_adj_ptr, gpu_csr_out_adj_node, gpu_csr_out_adj_wgt, 
+      gpu_csr_in_adj_ptr, gpu_csr_in_adj_node, gpu_csr_in_adj_wgt, gpu_deg, B
+    );
+
+    sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+      gpu_sampling_neighbors2, gpu_csr_out_adj_ptr, gpu_csr_out_adj_node, gpu_csr_out_adj_wgt,
+      gpu_csr_in_adj_ptr, gpu_csr_in_adj_node, gpu_csr_in_adj_wgt, gpu_deg, B
+    );
+
+    calculate_acceptance_prob<Node, Weight> <<<num_blocks, block_size, 0, s5>>>(
+      gpu_acceptance_prob, gpu_deg, B
+    );
+
+    cudaDeviceSynchronize();
+
+    propose<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+      gpu_random_blocks, gpu_sampling_neighbors1, gpu_sampling_neighbors2,
+      proposed_blocks, gpu_uniform_x, gpu_acceptance_prob, gpu_deg, B
+    );
+
+    cudaDeviceSynchronize();
+
+    calculate_dS_out<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+      gpu_dS_out, gpu_csr_out_adj_ptr, gpu_csr_out_adj_node, gpu_csr_out_adj_wgt,
+      gpu_csr_out_deg, gpu_csr_in_deg, B
+    );
+
+    calculate_dS_in<Node, Weight> <<<num_blocks, block_size, 0, s2>>>(
+      gpu_dS_in, gpu_csr_in_adj_ptr, gpu_csr_in_adj_node, gpu_csr_in_adj_wgt,
+      gpu_csr_in_deg, gpu_csr_out_deg, B
+    );
+
+    calculate_dS_new_out<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
+      gpu_dS_new_out, proposed_blocks, gpu_csr_out_adj_ptr, gpu_csr_out_adj_node, 
+      gpu_csr_out_adj_wgt, gpu_csr_out_deg, gpu_csr_in_deg, B
+    );
+
+    calculate_dS_new_in<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+      gpu_dS_new_in, proposed_blocks, gpu_csr_in_adj_ptr, gpu_csr_in_adj_node,
+      gpu_csr_in_adj_wgt, gpu_csr_in_deg, gpu_csr_out_deg, B
+    );
+
+    cudaDeviceSynchronize();
+
+    calculate_dS_overall<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+      gpu_dS, gpu_dS_out, gpu_dS_in, gpu_dS_new_out, gpu_dS_new_in,
+      gpu_csr_out_adj_ptr, gpu_csr_out_adj_node, gpu_csr_out_adj_wgt, gpu_csr_out_deg, 
+      gpu_csr_in_deg, proposed_blocks, best_proposed_blocks, B
+    );
+
+    cudaDeviceSynchronize();
+  }
+
+  // get the result back
+  cudaMemcpyAsync(&dS[0], gpu_dS, sizeof(float)*B, cudaMemcpyDefault, s1);
+  cudaMemcpyAsync(&S[0], best_proposed_blocks, sizeof(Node)*B, cudaMemcpyDefault, s1);
+
+
+  cudaFreeAsync(gpu_csr_out_adj_ptr, s1);
+  cudaFreeAsync(gpu_csr_out_adj_node, s1);
+  cudaFreeAsync(gpu_csr_out_adj_wgt, s1);
+  cudaFreeAsync(gpu_csr_out_deg, s1);
+  cudaFreeAsync(gpu_csr_in_adj_ptr, s1);
+  cudaFreeAsync(gpu_csr_in_adj_node, s1);
+  cudaFreeAsync(gpu_csr_in_adj_wgt, s1);
+  cudaFreeAsync(gpu_csr_in_deg, s1);
+  cudaFreeAsync(gpu_deg, s1);
+  cudaFreeAsync(gpu_random_blocks, s1);
+  cudaFreeAsync(gpu_sampling_neighbors1, s1);
+  cudaFreeAsync(gpu_sampling_neighbors2, s1);
+  cudaFreeAsync(gpu_uniform_x, s1);
+  cudaFreeAsync(gpu_acceptance_prob, s1);
+  cudaFreeAsync(proposed_blocks, s1);
+  cudaFreeAsync(best_proposed_blocks, s1);
+  cudaFreeAsync(gpu_dS_out, s1);
+  cudaFreeAsync(gpu_dS_in, s1);
+  cudaFreeAsync(gpu_dS_new_out, s1);
+  cudaFreeAsync(gpu_dS_new_in, s1);
+  cudaFreeAsync(gpu_dS, s1);
   
-  random_block_generator<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
-    gpu_random_blocks, B
+  cudaStreamDestroy(s1);
+  cudaStreamDestroy(s2);
+  cudaStreamDestroy(s3);
+  cudaStreamDestroy(s4);
+  cudaStreamDestroy(s5);
+
+}
+
+
+template <typename Node, typename Weight>
+void propose_nodal_move() {
+
+
+  random_block_generator_nodal<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+    gpu_random_blocks, B, g.N
   );
 
   uniform_number_generator<Node, Weight> <<<num_blocks, block_size, 0, s2>>>(
-    gpu_uniform_x, B
+    gpu_uniform_x, g.N
   );
 
   sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
-    gpu_sampling_neighbors1, gpu_csr_out, gpu_csr_in, gpu_deg, B
+    gpu_sampling_neighbors, gpu_b_csr_out_adj_ptr, gpu_b_csr_out_adj_node, gpu_b_csr_out_adj_wgt,
+    gpu_b_csr_in_adj_ptr, gpu_b_csr_in_adj_node, gpu_b_csr_in_adj_wgt, gpu_b_deg, B
   );
 
-  sample_neighbors<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
-    gpu_sampling_neighbors2, gpu_csr_out, gpu_csr_in, gpu_deg, B
+  sample_neighbors_nodal<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
+    gpu_sampling_neighbors_nodal, gpu_g_csr_out_adj_ptr, gpu_g_csr_out_adj_node,
+    gpu_g_csr_out_adj_wgt, gpu_g_csr_in_adj_ptr, gpu_g_csr_in_adj_node,
+    gpu_g_csr_in_adj_wgt, gpu_g_deg, gpu_blocks, N
   );
 
   calculate_acceptance_prob<Node, Weight> <<<num_blocks, block_size, 0, s5>>>(
@@ -535,133 +1008,89 @@ void propose_block_merge(Csr<Node, Weight>* gpu_csr_out,
 
   cudaDeviceSynchronize();
 
-  propose<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
-    gpu_random_blocks, gpu_sampling_neighbors1, gpu_sampling_neighbors2,
-    proposed_blocks, gpu_uniform_x, gpu_acceptance_prob, gpu_deg, B
-  );
+  /////////////////////////////
+  ////////////////////////////
+  // add BS
 
-  cudaDeviceSynchronize();
 
-  calculate_dS_out<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
-    gpu_dS_out, gpu_csr_out, gpu_csr_in, B
-  );
+    propose<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+      gpu_random_blocks, gpu_sampling_neighbors1, gpu_sampling_neighbors2,
+      proposed_blocks, gpu_uniform_x, gpu_acceptance_prob, gpu_deg, B
+    );
 
-  calculate_dS_in<Node, Weight> <<<num_blocks, block_size, 0, s2>>>(
-    gpu_dS_in, gpu_csr_out, gpu_csr_in, B
-  );
+    cudaDeviceSynchronize();
 
-  calculate_dS_new_out<Node, Weight> <<<num_blocks, block_size, 0, s3>>>(
-    gpu_dS_new_out, proposed_blocks, gpu_csr_out, gpu_csr_in, B
-  );
+  ///////////////////////////
+    ///////////////
 
-  calculate_dS_new_in<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
-    gpu_dS_new_in, proposed_blocks, gpu_csr_out, gpu_csr_in, B
-  );
 
-  cudaDeviceSynchronize();
+  calculate_dS_out(float* dS_out,
+                                 unsigned* csr_out_adj_ptr,
+                                 Node* csr_out_adj_node,
+                                 Weight* csr_out_adj_wgt,
+                                 Weight* csr_out_deg,
+                                 Weight* csr_in_deg,
+                                 unsigned B)
 
-  calculate_dS_overall<Node, Weight> <<<num_blocks, block_size, 0, s4>>>(
-    gpu_dS, gpu_dS_out, gpu_dS_in, gpu_dS_new_out, gpu_dS_new_in,
-    gpu_csr_out, gpu_csr_in, proposed_blocks, B
-  );
+  calculate_dS_in(float* dS_in,
+                                unsigned* csr_in_adj_ptr,
+                                Node* csr_in_adj_node,
+                                Weight* csr_in_adj_wgt,
+                                Weight* csr_in_deg,
+                                Weight* csr_out_deg,
+                                unsigned B)
 
-  cudaDeviceSynchronize();
 }
 
 int main (int argc, char *argv[]) {
-  
-  //std::string FileName("./Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar");
  
-  //if(argc != 2) {
-  //  std::cerr << "usage: ./run [Number of Nodes]\n";
-  //  std::exit(1);
-  //}
 
-  //int num_nodes = std::stoi(argv[1]);
-
-  //switch(num_nodes)  {
-  //  case 1000:
-  //    FileName += "_1000_nodes";
-  //    break;
-  //  case 5000:
-  //    FileName += "_5000_nodes";
-  //    break;
-  //  default:
-  //    std::cerr << "usage: ./run [Number of Nodes=1000/5000/20000/50000]\n";
-  //    std::exit(1);
-  //}
-
-  //Graph g = load_graph_from_tsv(FileName);
-  //std::cout << "Number of nodes: " << g.N << std::endl;
-  //std::cout << "Number of edges: " << g.E << std::endl;
-
-  //std::srand(std::time(nullptr));
-
-  //unsigned width = 1024;
-  //
-  //dim3 dimGrid(width/TILE_DIM, width/TILE_DIM, 1);
-  //dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
-
-  //std::vector<int> M(width*width);
-  //for (unsigned i = 0; i < width; i++) {
-  //  for (unsigned j = 0; j < width; j++) {
-  //    M[i*width + j] = std::rand() % 100;
-  //  }
-  //}
+  unsigned numProposals = 10;
+  float blockReduction = 0.5;
 
 
-  ////int* cpu_out = new int[width*width];
-  ////matrix_transpose_seq(cpu_out, M.data(), width);
-  ////matrix_addition_seq(cpu_out, cpu_out, M.data(), width);
-  ////int* cpu_out = new int[width];
-  ////float* cpu_out2 = new float[width*width];
-  ////matrix_row_reduce_seq(cpu_out, M.data(), width);
-  ////matrix_row_divide_seq(cpu_out2, M.data(), cpu_out, width);
+  std::string FileName("../Dataset/static/lowOverlap_lowBlockSizeVar/static_lowOverlap_lowBlockSizeVar");
+ 
+  if(argc != 2) {
+    std::cerr << "usage: ./run [Number of Nodes]\n";
+    std::exit(1);
+  }
 
-  ////////////////
-  //cudaStream_t stream;
-  //cudaStreamCreate(&stream);
+  int num_nodes = std::stoi(argv[1]);
 
-  //int* gpu_in;
-  //int* gpu_out;
-  //float* gpu_out2;
-  //float* res = new float[width*width];
-  ////int* res = new int[width];
+  switch(num_nodes)  {
+    case 1000:
+      FileName += "_1000_nodes";
+      break;
+    case 5000:
+      FileName += "_5000_nodes";
+      break;
+    default:
+      std::cerr << "usage: ./run [Number of Nodes=1000/5000/20000/50000]\n";
+      std::exit(1);
+  }
 
-  //cudaMallocAsync(&gpu_in, sizeof(int)*width*width, stream);
-  //cudaMallocAsync(&gpu_out, sizeof(int)*width, stream);
-  //cudaMallocAsync(&gpu_out2, sizeof(int)*width*width, stream);
-  //cudaMemcpyAsync(gpu_in, M.data(), sizeof(int)*width*width, cudaMemcpyDefault, stream);
+  Graph g = load_graph_from_tsv<unsigned, long>(FileName);
+  g.blocks.resize(g.N);
+  std::iota(g.blocks.begin(), g.blocks.end(), 0);
+  std::cout << "Number of nodes: " << g.N << std::endl;
+  std::cout << "Number of edges: " << g.E << std::endl;
 
+  Block<unsigned, long> b;
+  unsigned B = g.N;
+  unsigned bToMerges = B * blockReduction;
 
-  ////matrix_transposeDiagonal<<<dimGrid, dimBlock, 0, stream>>>(
-  ////  gpu_out, gpu_in, width
-  ////);
-  ////matrix_addition<<<dimGrid, dimBlock, 0, stream>>>(
-  ////  gpu_out, gpu_out, gpu_in, width
-  ////);
-  //matrix_row_reduce<<<dimGrid, dimBlock, 0, stream>>>(
-  //  gpu_out, gpu_in, width
-  //);
-  //matrix_row_divide<<<dimGrid, dimBlock, 0, stream>>>(
-	//gpu_out2, gpu_in, gpu_out, width
-  //);
+  initialize_block_count(g, b, B);
 
-  //cudaMemcpyAsync(res, gpu_out2, sizeof(int)*width*width, cudaMemcpyDefault, stream);
-
-  //cudaStreamSynchronize(stream);
-
-  //////////////
+  std::vector<unsigned> S(B);
+  std::vector<float> dS(B);
+  propose_block_merge(b, B, S, dS, numProposals);
 
 
-  /////////////
-  //cudaFreeAsync(gpu_in, stream);
-  //cudaFreeAsync(gpu_out, stream);
-  //cudaFreeAsync(gpu_out2, stream);
-  //cudaStreamDestroy(stream);
+  carry_out_best_merge(g, dS, S, B, bToMerges);
+  
+  B -= bToMerges;
 
-  ////delete[] cpu_out; 
-  //delete[] res; 
 
 
   return 0;

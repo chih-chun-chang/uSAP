@@ -1,6 +1,5 @@
 #include <iostream>
 #include <chrono>
-#include "include/graph.hpp"
 #include "include/graph_parallel.hpp"
 #include "include/evaluate.hpp"
 
