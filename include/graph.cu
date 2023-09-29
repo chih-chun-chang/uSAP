@@ -667,7 +667,7 @@ __global__ void propose_n(Node* gpu_random_blocks, Node* gpu_sampling_neighbors,
       s[ni] = gpu_random_blocks[ni];
     }  
   }
-
+  
 }
 
 
@@ -1011,34 +1011,50 @@ void propose_nodal_move() {
   /////////////////////////////
   ////////////////////////////
   // add BS
+  // (fetch batch of nodes)
+  // unsigned start = ?
+  // unsigned end = start + BS
+  // should the above random data re-sample?
 
+  propose_n<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
+    gpu_random_blocks, gpu_sampling_neighbors, gpu_sampling_neighbors_nodal, 
+    proposed_blocks, gpu_uniform_x, gpu_acceptance_prob, node_deg, N, BS
+  ); 
 
-    propose<Node, Weight> <<<num_blocks, block_size, 0, s1>>>(
-      gpu_random_blocks, gpu_sampling_neighbors1, gpu_sampling_neighbors2,
-      proposed_blocks, gpu_uniform_x, gpu_acceptance_prob, gpu_deg, B
-    );
-
-    cudaDeviceSynchronize();
+  cudaDeviceSynchronize();
 
   ///////////////////////////
-    ///////////////
+  ///////////////
+  // deal with BS???
+  // dS: (if r != s)
+  // r = B[ni]  -->  
+  // dS += M_row[i] * log(M_row[i] / (din[i] * dout[r]))
+  // dS += M_row[i] * log(M_row[i] / (din[i] * dout[s]))
+  // dS += M_col[i] * log(M_col[i] / (dout[i] * din[r])) // avoid i=r and i=s (recompute)
+  // dS += M_col[i] * log(M_col[i] / (dout[i] * din[s])) // avoid i=r and i=s (recompute)
 
 
-  calculate_dS_out(float* dS_out,
-                                 unsigned* csr_out_adj_ptr,
-                                 Node* csr_out_adj_node,
-                                 Weight* csr_out_adj_wgt,
-                                 Weight* csr_out_deg,
-                                 Weight* csr_in_deg,
-                                 unsigned B)
+  // tricky part: we have to update M based on the neighbors of ni's block
+  // for (v, w) in out_neighbor[ni]:
+  //   if (v == ni) [this is a self loop]
+  //     M_s_row[r] -= w
+  //     M_s_row[s] += w 
+  //   b = B[v]
+  //   M_r_row[b] -= w
+  //   M_s_row[b] += w
 
-  calculate_dS_in(float* dS_in,
-                                unsigned* csr_in_adj_ptr,
-                                Node* csr_in_adj_node,
-                                Weight* csr_in_adj_wgt,
-                                Weight* csr_in_deg,
-                                Weight* csr_out_deg,
-                                unsigned B)
+  // for (v, w) in in_neighbor[ni]:
+  //   if (v == ni) [this is a self loop]
+  //     M_r_row[r] -= w
+  //     M_r_row[s] += w 
+  //   b = B[v]
+  //   if (b == s) [proposed block is the current block]
+  //     M_s_row[r] -= w
+  //     M_s_row[s] += w
+  //   M_r_row[b] -= w
+  //   M_s_row[b] += w
+
+
 
 }
 
