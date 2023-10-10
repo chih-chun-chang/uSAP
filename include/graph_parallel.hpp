@@ -1121,10 +1121,10 @@ void Graph_P<W>::_propose_new_partition_nodal(
       b = _P.partitions[v];
       //p_forward += (float)(w * (newM.M_s_row[b] + newM.M_s_col[b] + 1))
       //  /(_P.d.a[b] + _P.B);
-      if (v == ni) {
-        newM.M_s_row[r] -= w;
-        newM.M_s_row[s] += w;
-      }
+      //if (v == ni) {
+      //  newM.M_s_row[r] -= w;
+      //  newM.M_s_row[s] += w;
+      //}
       newM.M_r_row[b] -= w;
       newM.M_s_row[b] += w;
     }
@@ -1132,14 +1132,14 @@ void Graph_P<W>::_propose_new_partition_nodal(
       b = _P.partitions[v];
       //p_forward += (float)(w * (newM.M_s_row[b] + newM.M_s_col[b] + 1))
       //  /(_P.d.a[b] + _P.B);
-      if (b == r) {
-        newM.M_r_row[r] -= w;
-        newM.M_r_row[s] += w;
-      }
-      if (b == s) {
-        newM.M_s_row[r] -= w;
-        newM.M_s_row[s] += w;
-      }
+      //if (b == r) {
+      //  newM.M_r_row[r] -= w;
+      //  newM.M_r_row[s] += w;
+      //}
+      //if (b == s) {
+      //  newM.M_s_row[r] -= w;
+      //  newM.M_s_row[s] += w;
+      //}
       newM.M_r_col[b] -= w;
       newM.M_s_col[b] += w;
     }
